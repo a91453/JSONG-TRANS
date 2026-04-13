@@ -1,14 +1,21 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  output: 'standalone',
   typescript: {
     ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Genkit 套件使用 CommonJS 動態 require，需排除在 webpack 打包之外
+  serverExternalPackages: [
+    'genkit',
+    '@genkit-ai/core',
+    '@genkit-ai/ai',
+    '@genkit-ai/google-genai',
+    'genkitx-openai',
+    '@opentelemetry/sdk-node',
+  ],
   images: {
     remotePatterns: [
       {

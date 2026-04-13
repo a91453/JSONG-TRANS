@@ -1,5 +1,5 @@
 
-import type {Metadata} from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { Navigation } from '@/components/Navigation';
@@ -7,7 +7,13 @@ import { Navigation } from '@/components/Navigation';
 export const metadata: Metadata = {
   title: 'NihongoPath - 沉浸式日語學習 (v1.0)',
   description: '透過沉浸式影片、互動遊戲和結構化練習，輕鬆掌握日語。',
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
