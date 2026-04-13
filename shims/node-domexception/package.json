@@ -1,0 +1,7 @@
+{
+  "name": "node-domexception",
+  "version": "1.0.0",
+  "description": "Native DOMException shim — replaces deprecated package with Node.js 18+ built-in",
+  "main": "index.js",
+  "license": "MIT"
+}
