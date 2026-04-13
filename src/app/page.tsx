@@ -66,7 +66,8 @@ export default function HomePage() {
   const settings = useSettingsStore();
   const { streak, checkIn } = useStreakStore();
   const { items: historyItems, removeByVideoId, saveResult } = useHistoryStore();
-  const { entries, unmasteredCount } = useDictionaryStore();
+  const { entries } = useDictionaryStore();
+  const unmasteredCount = entries.filter(e => !e.mastered).length;
   const { items: favoriteItems } = useFavoriteStore();
 
   useEffect(() => {
@@ -131,7 +132,7 @@ export default function HomePage() {
         apiKey: settings.aiProvider === 'google' ? settings.geminiApiKey : settings.groqApiKey,
         model: settings.aiProvider === 'google' ? settings.geminiModel : settings.groqModel
       });
-      const finalResult = { ...result, videoId, source: 'genkit-ai' as const };
+      const finalResult = { ...result, videoId };
       
       saveResult(finalResult, title, author);
       

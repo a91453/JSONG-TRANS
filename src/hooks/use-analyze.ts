@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { AnalyzeResponse } from '@/types';
+import type { AnalyzeResponse } from '@/types';
 import { useHistoryStore, useSettingsStore } from '@/store/use-app-store';
 import { fetchYouTubeInfo } from '@/lib/youtube';
 import { analyzeVideoAction } from '@/ai/flows/analyze-video';
@@ -84,8 +84,8 @@ export function useAnalyze() {
       setVideoTitle(title);
       setArtistName(author);
 
-      const data = await analyzeVideoAction({ 
-        videoId, 
+      const finalResponse = await analyzeVideoAction({
+        videoId,
         videoTitle: title,
         config: {
           provider,
@@ -93,11 +93,6 @@ export function useAnalyze() {
           model
         }
       });
-
-      const finalResponse: AnalyzeResponse = {
-        ...data,
-        source: 'genkit-ai'
-      };
 
       setResponse(finalResponse);
       historyStore.saveResult(finalResponse, title, author);

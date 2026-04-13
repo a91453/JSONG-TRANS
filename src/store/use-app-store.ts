@@ -75,8 +75,6 @@ export const useSettingsStore = create<SettingsState>()(
 // --- Dictionary Store ---
 interface DictionaryState {
   entries: DictEntry[];
-  unmasteredCount: number;
-  masteredCount: number;
   addEntry: (word: string, reading: string, videoId: string, songTitle: string, sentence: string, translation: string) => void;
   addAllFromSegment: (segment: Segment, videoId: string, songTitle: string) => void;
   removeEntry: (id: string) => void;
@@ -90,8 +88,6 @@ export const useDictionaryStore = create<DictionaryState>()(
   persist(
     (set, get) => ({
       entries: [],
-      unmasteredCount: 0,
-      masteredCount: 0,
       addEntry: (word, reading, videoId, songTitle, sentence, translation) => {
         const { entries } = get();
         const existingIdx = entries.findIndex(e => e.word === word && e.reading === reading);
@@ -102,11 +98,7 @@ export const useDictionaryStore = create<DictionaryState>()(
           const entry = updated[existingIdx];
           if (!entry.sources.some(s => s.videoId === videoId && s.sentence === sentence)) {
             entry.sources.push(source);
-            set({ 
-              entries: updated,
-              unmasteredCount: updated.filter(e => !e.mastered).length,
-              masteredCount: updated.filter(e => e.mastered).length
-            });
+            set({ entries: updated });
           }
           return;
         }
@@ -120,35 +112,20 @@ export const useDictionaryStore = create<DictionaryState>()(
           addedDate: new Date().toISOString(),
           mastered: false
         };
-        const newList = [newEntry, ...entries];
-        set({ 
-          entries: newList,
-          unmasteredCount: newList.filter(e => !e.mastered).length,
-          masteredCount: newList.filter(e => e.mastered).length
-        });
+        set({ entries: [newEntry, ...entries] });
       },
       addAllFromSegment: (segment, videoId, songTitle) => {
         segment.furigana.forEach(item => {
           get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
         });
       },
-      removeEntry: (id) => set(state => {
-        const newList = state.entries.filter(e => e.id !== id);
-        return { 
-          entries: newList,
-          unmasteredCount: newList.filter(e => !e.mastered).length,
-          masteredCount: newList.filter(e => e.mastered).length
-        };
-      }),
-      clearAll: () => set({ entries: [], unmasteredCount: 0, masteredCount: 0 }),
-      toggleMastered: (id) => set(state => {
-        const newList = state.entries.map(e => e.id === id ? { ...e, mastered: !e.mastered } : e);
-        return { 
-          entries: newList,
-          unmasteredCount: newList.filter(e => !e.mastered).length,
-          masteredCount: newList.filter(e => e.mastered).length
-        };
-      }),
+      removeEntry: (id) => set(state => ({
+        entries: state.entries.filter(e => e.id !== id),
+      })),
+      clearAll: () => set({ entries: [] }),
+      toggleMastered: (id) => set(state => ({
+        entries: state.entries.map(e => e.id === id ? { ...e, mastered: !e.mastered } : e),
+      })),
       contains: (word, reading) => get().entries.some(e => e.word === word && e.reading === reading),
       countForSong: (videoId) => get().entries.filter(e => e.sources.some(s => s.videoId === videoId)).length,
     }),

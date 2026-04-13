@@ -72,15 +72,15 @@ export default function DashboardPage() {
     checkDailyReset(); 
   }, [checkIn, checkDailyReset]);
 
-  // 模擬最近 7 天的數據 (移植自 Swift 的活動追蹤邏輯)
+  // 最近 7 天的數據：僅今日有真實數據，其餘顯示 0
   const chartData = useMemo(() => {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const today = new Date().getDay(); // 0 is Sun, 1 is Mon
     const shiftedDays = [...days.slice(today), ...days.slice(0, today)];
-    
+
     return shiftedDays.map((day, idx) => ({
       name: day,
-      count: idx === shiftedDays.length - 1 ? (progress.dailyKanaCount + progress.dailyVocabCount) : Math.floor(Math.random() * 30) + 10
+      count: idx === shiftedDays.length - 1 ? (progress.dailyKanaCount + progress.dailyVocabCount) : 0
     }));
   }, [progress.dailyKanaCount, progress.dailyVocabCount]);
 
@@ -135,17 +135,17 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      <div className="grid grid-cols-3 gap-1 p-4 bg-card rounded-2xl shadow-md border border-border/50">
+      <div className="flex items-center justify-around p-4 bg-card rounded-2xl shadow-md border border-border/50">
         <div className="flex flex-col items-center justify-center gap-1">
           <span className="text-2xl font-black text-orange-500 font-body">{streak.current}</span>
           <span className="text-[10px] font-bold text-muted-foreground uppercase">目前連勝</span>
         </div>
-        <div className="w-px bg-border h-8 self-center" />
+        <div className="w-px bg-border h-8" />
         <div className="flex flex-col items-center justify-center gap-1">
           <span className="text-2xl font-black text-primary font-body">{streak.longest}</span>
           <span className="text-[10px] font-bold text-muted-foreground uppercase">最長紀錄</span>
         </div>
-        <div className="w-px bg-border h-8 self-center" />
+        <div className="w-px bg-border h-8" />
         <div className="flex flex-col items-center justify-center gap-1">
           <span className="text-2xl font-black text-green-600 font-body">{streak.total}</span>
           <span className="text-[10px] font-bold text-muted-foreground uppercase">總天數</span>

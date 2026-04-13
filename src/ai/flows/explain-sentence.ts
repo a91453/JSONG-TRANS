@@ -4,7 +4,7 @@
  * @fileOverview 語句詳細解析 AI 流程 (支援多供應商)
  */
 
-import { ai, z } from '@/ai/genkit';
+import { createAi, z } from '@/ai/genkit';
 
 const GrammarPointSchema = z.object({
   point: z.string().describe('文法要點或助詞'),
@@ -36,12 +36,7 @@ export async function explainSentenceAction(
   }
 
   const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-1.5-flash' : 'openai/llama-3.3-70b-versatile');
-  
-  if (provider === 'google') {
-    process.env.GOOGLE_GENAI_API_KEY = userApiKey;
-  } else {
-    process.env.OPENAI_API_KEY = userApiKey;
-  }
+  const ai = createAi(provider, userApiKey);
 
   try {
     const { output } = await ai.generate({

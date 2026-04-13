@@ -136,7 +136,7 @@ export default function SettingsPage() {
                     />
                     <div className="flex justify-end">
                       <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-[9px] font-bold text-primary flex items-center gap-1 hover:underline">
-                        獲獲免費金鑰 <ExternalLink size={10} />
+                        獲取免費金鑰 <ExternalLink size={10} />
                       </a>
                     </div>
                   </div>

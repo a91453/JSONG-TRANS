@@ -367,9 +367,9 @@ function LearnContent() {
         isPlaying={isPlaying} 
         playbackRate={playbackRate} 
         isPinned={isPinned} 
-        onTogglePlay={() => { if (isPlaying) player.pauseVideo(); else player.playVideo(); }} 
-        onSeek={handleSeek} 
-        onSetRate={(rate) => { player.setPlaybackRate(rate); setPlaybackRate(rate); }} 
+        onTogglePlay={() => { if (player) { if (isPlaying) player.pauseVideo(); else player.playVideo(); } }}
+        onSeek={handleSeek}
+        onSetRate={(rate) => { player?.setPlaybackRate(rate); setPlaybackRate(rate); }}
         onTogglePin={() => setIsPinned(!isPinned)} 
         onExplain={() => { const active = segments.find(s => s.id === activeSegmentId); if (active) handleExplainAI(active.japanese); }} 
         onShare={handleShare} 

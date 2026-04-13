@@ -1,7 +1,7 @@
 
 "use client"
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { convertToRomaji } from '@/lib/romaji-utils';
 import { cn } from '@/lib/utils';
 
@@ -42,10 +42,10 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
   active = false,
   onWordClick
 }) => {
-  const buildTokens = (): FuriToken[] => {
+  const tokens = useMemo((): FuriToken[] => {
     let parts: FuriToken[] = [{ text: text, isAnnotated: false }];
     const sortedItems = [...furiganaItems].sort((a, b) => b.word.length - a.word.length);
-    
+
     sortedItems.forEach(item => {
       const nextParts: FuriToken[] = [];
       parts.forEach(part => {
@@ -68,9 +68,7 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
       parts = nextParts;
     });
     return parts;
-  };
-
-  const tokens = buildTokens();
+  }, [text, furiganaItems]);
   const subFontSize = Math.max(fontSize * 0.55, 12);
 
   return (
