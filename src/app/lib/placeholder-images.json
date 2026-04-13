@@ -1,0 +1,23 @@
+
+{
+  "placeholderImages": [
+    {
+      "id": "japanese-street",
+      "description": "A vibrant street in Tokyo at night with neon signs.",
+      "imageUrl": "https://picsum.photos/seed/jp1/1200/800",
+      "imageHint": "Tokyo street"
+    },
+    {
+      "id": "zen-garden",
+      "description": "A peaceful Japanese zen garden with raked sand and stones.",
+      "imageUrl": "https://picsum.photos/seed/jp2/1200/800",
+      "imageHint": "Zen garden"
+    },
+    {
+      "id": "mount-fuji",
+      "description": "Mount Fuji with cherry blossoms in the foreground.",
+      "imageUrl": "https://picsum.photos/seed/jp3/1200/800",
+      "imageHint": "Mount Fuji"
+    }
+  ]
+}
