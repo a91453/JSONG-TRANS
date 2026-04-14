@@ -2,11 +2,13 @@
 'use server';
 /**
  * @fileOverview 影片解析 AI 流程
- * 策略：優先使用 YouTube 官方字幕（更準確），無字幕時才讓 Gemini 完整生成。
+ * 策略：優先使用 YouTube 官方字幕（更準確），無字幕時才讓 AI 完整生成。
+ * Groq 供應商使用直接 fetch（繞過 genkitx-openai 相容性問題）。
  */
 
 import { createAi, z } from '@/ai/genkit';
 import { fetchYouTubeCaptions } from '@/lib/youtube-captions';
+import { groqGenerate } from '@/lib/groq-generate';
 
 const FuriganaItemSchema = z.object({
   word: z.string().describe('包含漢字的完整語義單元（例如：去られ、合う、目覺めて、笑った）。必須包含其連動的活用語尾。'),
@@ -72,6 +74,43 @@ async function generateWithRetry(
   throw new Error('重試次數已耗盡');
 }
 
+// ── JSON schema hint embedded in Groq prompts ────────────────────────────────
+const SEGMENTS_JSON_HINT = `
+你必須僅回傳一個合法的 JSON 物件，格式嚴格如下（不要有任何其他文字）：
+{"segments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
+`;
+
+const ANNOTATED_JSON_HINT = `
+你必須僅回傳一個合法的 JSON 物件，格式嚴格如下（不要有任何其他文字）：
+{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
+`;
+
+/** 解析 Groq JSON 回應並驗證 segments */
+function parseGroqSegments(raw: string): z.infer<typeof SegmentSchema>[] {
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。');
+  }
+  const result = z.object({ segments: z.array(SegmentSchema) }).safeParse(json);
+  if (!result.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
+  return result.data.segments;
+}
+
+/** 解析 Groq JSON 回應並驗證 annotatedSegments */
+function parseGroqAnnotated(raw: string): z.infer<typeof SegmentSchema>[] {
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。');
+  }
+  const result = z.object({ annotatedSegments: z.array(SegmentSchema) }).safeParse(json);
+  if (!result.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
+  return result.data.annotatedSegments;
+}
+
 export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInputSchema>) {
   const provider = input.config?.provider || 'google';
   const userApiKey = input.config?.apiKey;
@@ -82,7 +121,6 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
 
   try {
     const modelId = input.config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
-    const ai = createAi(provider, userApiKey);
 
     // ── 步驟 1：嘗試抓取 YouTube 字幕 ──────────────────────────────────────
     const captionResult = input.videoId.length === 11
@@ -93,7 +131,7 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     let expectedSource: 'server-sub' | 'server-sub-auto' | 'genkit-ai';
 
     if (captionResult && captionResult.captions.length >= 3) {
-      // ── 有字幕：Gemini 只需補假名 + 翻譯 ──────────────────────────────
+      // ── 有字幕：AI 只需補假名 + 翻譯 ──────────────────────────────
       expectedSource = captionResult.isAuto ? 'server-sub-auto' : 'server-sub';
 
       const captionLines = captionResult.captions
@@ -116,9 +154,9 @@ ${captionLines}
 【翻譯規則】
 - 翻譯必須優美、符合語境，使用繁體中文。
 - 保留原文的時間戳（start/end）。
-- 輸出必須嚴格遵守 JSON Schema，id 欄位填入空字串即可。`;
+- id 欄位填入空字串即可。`;
     } else {
-      // ── 無字幕：Gemini 完整生成 ────────────────────────────────────────
+      // ── 無字幕：AI 完整生成 ────────────────────────────────────────
       expectedSource = 'genkit-ai';
 
       prompt = `你是一位日語語言學專家。你的任務是解析 YouTube 影片 ID: ${input.videoId}（標題：${input.videoTitle || '未知'}）的完整內容。
@@ -135,24 +173,41 @@ ${captionLines}
 
 【內容要求】
 - 繁體中文翻譯必須優美且符合語境。
-- 輸出必須嚴格遵守 JSON Schema。`;
+- id 欄位填入空字串即可。`;
     }
 
-    // ── 步驟 2：呼叫 Gemini（503 自動重試）─────────────────────────────
-    const { output } = await generateWithRetry(ai, {
-      model: modelId,
-      output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
-      prompt,
-    });
+    // ── 步驟 2：呼叫 AI ─────────────────────────────────────────────
+    let finalSegments: z.infer<typeof SegmentSchema>[];
 
-    if (!output?.segments || output.segments.length === 0) {
+    if (provider === 'groq') {
+      // ── Groq 直接呼叫（不透過 genkit）────────────────────────────
+      const raw = await groqGenerate(userApiKey, modelId, [
+        { role: 'system', content: '你是一位日語語言學專家，專門處理字幕標注與翻譯。你只回傳 JSON，不輸出任何說明文字。' },
+        { role: 'user', content: prompt + '\n\n' + SEGMENTS_JSON_HINT },
+      ]);
+      finalSegments = parseGroqSegments(raw);
+    } else {
+      // ── Google Gemini（透過 genkit）───────────────────────────────
+      const ai = createAi(provider, userApiKey);
+      const { output } = await generateWithRetry(ai, {
+        model: modelId,
+        output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
+        prompt,
+      });
+      if (!output?.segments || output.segments.length === 0) {
+        throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
+      }
+      finalSegments = output.segments;
+    }
+
+    if (!finalSegments || finalSegments.length === 0) {
       throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
     }
 
     return {
       videoId: input.videoId,
-      duration: output.segments[output.segments.length - 1]?.end || 0,
-      segments: output.segments.map((s: any) => ({ ...s, id: crypto.randomUUID() })),
+      duration: finalSegments[finalSegments.length - 1]?.end || 0,
+      segments: finalSegments.map((s: any) => ({ ...s, id: crypto.randomUUID() })),
       source: expectedSource,
     };
   } catch (error: any) {
@@ -188,27 +243,38 @@ export async function annotateSegmentsAction(
 
   try {
     const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
-    const ai = createAi(provider, userApiKey);
-
     const segmentLines = segments.map(s => `- [${s.start}s - ${s.end}s] ${s.text}`).join('\n');
 
-    const { output } = await ai.generate({
-      model: modelId,
-      output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
-      prompt: `請為以下段落進行日語標注。
+    const annotationPrompt = `請為以下段落進行日語標注。
 【複合單元規則】：漢字與其活用語尾（如：去られ、合う、目覺めて、笑った）必須視為一個單元標注。
-確保 reading 為純平假名並包含整個單元的讀音。
+確保 reading 為純平假名並包含整個單元的讀音。同時提供繁體中文翻譯。
 
 輸入：
-${segmentLines}`,
-    });
+${segmentLines}`;
 
-    if (!output?.annotatedSegments) throw new Error('AI 標注失敗');
+    let finalSegments: z.infer<typeof SegmentSchema>[];
+
+    if (provider === 'groq') {
+      const raw = await groqGenerate(userApiKey, modelId, [
+        { role: 'system', content: '你是一位日語語言學專家，專門處理字幕標注與翻譯。你只回傳 JSON，不輸出任何說明文字。' },
+        { role: 'user', content: annotationPrompt + '\n\n' + ANNOTATED_JSON_HINT },
+      ]);
+      finalSegments = parseGroqAnnotated(raw);
+    } else {
+      const ai = createAi(provider, userApiKey);
+      const { output } = await ai.generate({
+        model: modelId,
+        output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
+        prompt: annotationPrompt,
+      });
+      if (!output?.annotatedSegments) throw new Error('AI 標注失敗');
+      finalSegments = output.annotatedSegments;
+    }
 
     return {
       videoId: 'custom_' + Date.now(),
       duration: segments[segments.length - 1]?.end || 0,
-      segments: output.annotatedSegments.map((s: any) => ({ ...s, id: crypto.randomUUID() })),
+      segments: finalSegments.map((s: any) => ({ ...s, id: crypto.randomUUID() })),
       source: 'genkit-ai' as const,
     };
   } catch (error: any) {
