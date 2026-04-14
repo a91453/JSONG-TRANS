@@ -46,7 +46,6 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     const { output } = await ai.generate({
       model: modelId,
       output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
-      config: provider === 'google' ? { googleSearchRetrieval: true } : {},
       prompt: `
         你是一位日語語言學專家。你的任務是解析影片 ID: ${input.videoId} (標題: ${input.videoTitle || '未知'}) 的內容。
 
@@ -74,10 +73,17 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     };
   } catch (error: any) {
     console.error('Error in analyzeVideoAction:', error);
-    if (error.message?.includes('429') || error.message?.includes('Quota') || error.message?.includes('limit')) {
+    const msg: string = error.message || '';
+    if (msg.includes('429') || msg.includes('Quota') || msg.includes('limit') || msg.includes('RESOURCE_EXHAUSTED')) {
       throw new Error('API 請求配額已滿，請稍候 30 秒再試。');
     }
-    throw error;
+    if (msg.includes('403') || msg.includes('API_KEY') || msg.includes('invalid') || msg.includes('PERMISSION_DENIED')) {
+      throw new Error('API Key 無效或權限不足，請至設定頁面重新確認。');
+    }
+    if (msg.includes('404') || msg.includes('NOT_FOUND')) {
+      throw new Error('找不到指定的 AI 模型，請至設定頁面更換模型。');
+    }
+    throw new Error(msg || '分析失敗，請檢查網路或 API 設定後再試。');
   }
 }
 
@@ -121,6 +127,7 @@ export async function annotateSegmentsAction(
     };
   } catch (error: any) {
     console.error('Error in annotateSegmentsAction:', error);
-    throw error;
+    const msg: string = error.message || '';
+    throw new Error(msg || 'AI 標註失敗，請檢查 API Key 或稍後再試。');
   }
 }

@@ -61,6 +61,7 @@ export async function explainSentenceAction(
     return output;
   } catch (error: any) {
     console.error('Error in explainSentenceAction:', error);
-    throw error;
+    const msg: string = error.message || '';
+    throw new Error(msg || 'AI 解說失敗，請檢查 API Key 或稍後再試。');
   }
 }

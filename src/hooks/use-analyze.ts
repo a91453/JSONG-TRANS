@@ -100,10 +100,12 @@ export function useAnalyze() {
     } catch (error: any) {
       console.error('Error in useAnalyze:', error);
       const msg = error.message || "";
-      if (msg.includes("429") || msg.includes("Quota") || msg.includes("limit")) {
+      if (msg.includes("429") || msg.includes("Quota") || msg.includes("limit") || msg.includes("RESOURCE_EXHAUSTED")) {
         setErrorMessage("API 配額已滿，請稍候 30 秒再試。建議檢查 API Key 狀態。");
+      } else if (msg.includes("Server Components") || msg.includes("digest") || !msg) {
+        setErrorMessage("伺服器發生錯誤，請確認 API Key 正確且模型可使用，然後重試。");
       } else {
-        setErrorMessage(msg || "分析失敗，請檢查網路或 API 設定。");
+        setErrorMessage(msg);
       }
     } finally {
       setIsLoading(false);
