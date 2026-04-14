@@ -3,8 +3,16 @@
  * 使用 Groq OpenAI 相容端點 + json_object 模式取得結構化輸出。
  */
 
-function stripOpenAIPrefix(model: string): string {
+/** 還原 Groq 實際 model ID（去除前端慣用的 openai/ 前綴） */
+function toGroqModelId(model: string): string {
   return model.startsWith('openai/') ? model.slice(7) : model;
+}
+
+/** 依模型大小決定安全的 max_tokens（避免超出 TPM 限制） */
+function safeMaxTokens(model: string): number {
+  // 8b 等小模型在免費 tier 的 TPM 限制較低（6K），需縮小輸出上限
+  if (model.includes('8b') || model.includes('mini')) return 4096;
+  return 8192;
 }
 
 function classifyGroqError(status: number, body: string): Error {
@@ -26,7 +34,8 @@ export async function groqGenerate(
   messages: Array<{ role: 'system' | 'user'; content: string }>,
   maxRetries = 2
 ): Promise<string> {
-  const groqModel = stripOpenAIPrefix(model);
+  const groqModel = toGroqModelId(model);
+  const maxTokens = safeMaxTokens(groqModel);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let res: Response;
@@ -42,7 +51,7 @@ export async function groqGenerate(
           messages,
           response_format: { type: 'json_object' },
           temperature: 0.15,
-          max_tokens: 16384,
+          max_tokens: maxTokens,
         }),
         signal: AbortSignal.timeout(120000),
       });

@@ -60,9 +60,9 @@ const GEMINI_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string }> =
 };
 
 const GROQ_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string, tpd: string }> = {
-  "openai/llama-3.1-8b-instant": { rpm: "30", tpm: "14.4K", rpd: "6,000", tpd: "500K" },
-  "openai/llama-3.3-70b-versatile": { rpm: "30", tpm: "1K", rpd: "12,000", tpd: "100K" },
-  "openai/mixtral-8x7b-32768": { rpm: "30", tpm: "5K", rpd: "14,400", tpd: "500K" },
+  "openai/llama-3.3-70b-versatile":              { rpm: "30", tpm: "6K",  rpd: "14,400", tpd: "100K" },
+  "meta-llama/llama-4-scout-17b-16e-instruct":   { rpm: "30", tpm: "6K",  rpd: "14,400", tpd: "100K" },
+  "openai/llama-3.1-8b-instant":                 { rpm: "30", tpm: "6K",  rpd: "14,400", tpd: "500K" },
 };
 
 export default function SettingsPage() {
@@ -73,11 +73,19 @@ export default function SettingsPage() {
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showGroqKey, setShowGroqKey] = useState(false);
 
-  useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => {
+    setIsMounted(true);
+    // 遷移：自動修正已下架的 Groq 模型
+    const deprecated = ['openai/mixtral-8x7b-32768'];
+    if (deprecated.includes(settings.groqModel)) {
+      settings.setGroqModel('openai/llama-3.3-70b-versatile');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   if (!isMounted) return null;
 
   const currentGeminiLimit = GEMINI_LIMITS[settings.geminiModel] || GEMINI_LIMITS["googleai/gemini-2.5-flash"];
-  const currentGroqLimit = GROQ_LIMITS[settings.groqModel] || GROQ_LIMITS["openai/llama-3.3-70b-versatile"];
+  const currentGroqLimit = GROQ_LIMITS[settings.groqModel] ?? GROQ_LIMITS["openai/llama-3.3-70b-versatile"];
 
   const exportDictionary = () => {
     if (dictStore.entries.length === 0) return;
@@ -230,9 +238,9 @@ export default function SettingsPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="rounded-xl">
-                          <SelectItem value="openai/llama-3.3-70b-versatile">Llama 3.3 70B</SelectItem>
-                          <SelectItem value="openai/mixtral-8x7b-32768">Mixtral 8x7B</SelectItem>
-                          <SelectItem value="openai/llama-3.1-8b-instant">Llama 3.1 8B</SelectItem>
+                          <SelectItem value="openai/llama-3.3-70b-versatile">Llama 3.3 70B (建議)</SelectItem>
+                          <SelectItem value="meta-llama/llama-4-scout-17b-16e-instruct">Llama 4 Scout 17B</SelectItem>
+                          <SelectItem value="openai/llama-3.1-8b-instant">Llama 3.1 8B (極速)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

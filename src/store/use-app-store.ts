@@ -54,7 +54,7 @@ export const useSettingsStore = create<SettingsState>()(
       geminiApiKey: '',
       geminiModel: 'googleai/gemini-2.5-flash',
       groqApiKey: '',
-      groqModel: 'openai/llama-3.3-70b-versatile',
+      groqModel: 'openai/llama-3.3-70b-versatile', // mixtral-8x7b-32768 已於 2025 年下架
       setThemeMode: (themeMode) => set({ themeMode }),
       setLyricsFontSize: (lyricsFontSize) => set({ lyricsFontSize }),
       setDefaultAnnotation: (defaultAnnotation) => set({ defaultAnnotation }),

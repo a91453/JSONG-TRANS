@@ -89,12 +89,13 @@ export async function searchLrcLib(
 ): Promise<{ track: LrcLibTrack; segments: LrcSegment[] } | null> {
   const { songTitle, artist } = parseVideoTitle(videoTitle);
 
-  // 多種查詢策略，依序嘗試
-  const queries = [
+  // 多種查詢策略，依序嘗試（去重避免重複請求）
+  const rawQueries = [
     artist ? `${songTitle} ${artist}` : null,
     songTitle,
     videoTitle.replace(/[\(\[【「][^\)\]】」]*[\)\]】」]/g, '').trim(),
-  ].filter((q): q is string => !!q && q.length > 1);
+  ];
+  const queries = [...new Set(rawQueries.filter((q): q is string => !!q && q.length > 1))];
 
   for (const q of queries) {
     try {
