@@ -52,17 +52,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-// API Rate Limit Data
+// API Rate Limit Data（免費 tier）
 const GEMINI_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string }> = {
-  "googleai/gemini-2.5-flash-lite": { rpm: "30", tpm: "1M", rpd: "1,500" },
-  "googleai/gemini-2.5-flash": { rpm: "15", tpm: "1M", rpd: "500" },
-  "googleai/gemini-2.5-pro": { rpm: "5", tpm: "1M", rpd: "25" },
+  "googleai/gemini-2.5-flash":      { rpm: "15", tpm: "1M",  rpd: "500"   },
+  "googleai/gemini-2.5-flash-lite": { rpm: "30", tpm: "1M",  rpd: "1,500" },
+  "googleai/gemini-2.5-pro":        { rpm: "5",  tpm: "1M",  rpd: "25"    },
+  "googleai/gemini-2.0-flash":      { rpm: "15", tpm: "1M",  rpd: "1,500" },
+  "googleai/gemini-2.0-flash-lite": { rpm: "30", tpm: "1M",  rpd: "1,500" },
 };
 
 const GROQ_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string, tpd: string }> = {
-  "openai/llama-3.3-70b-versatile":              { rpm: "30", tpm: "6K",  rpd: "14,400", tpd: "100K" },
-  "meta-llama/llama-4-scout-17b-16e-instruct":   { rpm: "30", tpm: "6K",  rpd: "14,400", tpd: "100K" },
-  "openai/llama-3.1-8b-instant":                 { rpm: "30", tpm: "6K",  rpd: "14,400", tpd: "500K" },
+  "openai/llama-3.3-70b-versatile":            { rpm: "30", tpm: "6K", rpd: "14,400", tpd: "100K" },
+  "moonshotai/kimi-k2-instruct":               { rpm: "30", tpm: "6K", rpd: "14,400", tpd: "100K" },
+  "meta-llama/llama-4-scout-17b-16e-instruct": { rpm: "30", tpm: "6K", rpd: "14,400", tpd: "100K" },
+  "openai/llama-3.1-8b-instant":               { rpm: "30", tpm: "6K", rpd: "14,400", tpd: "500K" },
 };
 
 export default function SettingsPage() {
@@ -165,6 +168,8 @@ export default function SettingsPage() {
                           <SelectItem value="googleai/gemini-2.5-flash">Gemini 2.5 Flash (建議)</SelectItem>
                           <SelectItem value="googleai/gemini-2.5-pro">Gemini 2.5 Pro (深度)</SelectItem>
                           <SelectItem value="googleai/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (預覽)</SelectItem>
+                          <SelectItem value="googleai/gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
+                          <SelectItem value="googleai/gemini-2.0-flash-lite">Gemini 2.0 Flash Lite (省配額)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -239,6 +244,7 @@ export default function SettingsPage() {
                         </SelectTrigger>
                         <SelectContent className="rounded-xl">
                           <SelectItem value="openai/llama-3.3-70b-versatile">Llama 3.3 70B (建議)</SelectItem>
+                          <SelectItem value="moonshotai/kimi-k2-instruct">Kimi K2 (日文優化)</SelectItem>
                           <SelectItem value="meta-llama/llama-4-scout-17b-16e-instruct">Llama 4 Scout 17B</SelectItem>
                           <SelectItem value="openai/llama-3.1-8b-instant">Llama 3.1 8B (極速)</SelectItem>
                         </SelectContent>
