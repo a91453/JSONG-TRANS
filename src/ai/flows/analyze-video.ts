@@ -1,11 +1,12 @@
 
 'use server';
 /**
- * @fileOverview 影片解析 AI 流程 - 終極標註加固版
- * 強制要求將「漢字+活用語尾」視為單一標註單元，根除羅馬音層的漢字遺漏。
+ * @fileOverview 影片解析 AI 流程
+ * 策略：優先使用 YouTube 官方字幕（更準確），無字幕時才讓 Gemini 完整生成。
  */
 
 import { createAi, z } from '@/ai/genkit';
+import { fetchYouTubeCaptions } from '@/lib/youtube-captions';
 
 const FuriganaItemSchema = z.object({
   word: z.string().describe('包含漢字的完整語義單元（例如：去られ、合う、目覺めて、笑った）。必須包含其連動的活用語尾。'),
@@ -31,10 +32,17 @@ const AnalyzeVideoInputSchema = z.object({
   }).optional(),
 });
 
+/** 將秒數轉為 mm:ss 格式（供 prompt 用） */
+function toTimestamp(sec: number): string {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = Math.floor(sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
 export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInputSchema>) {
   const provider = input.config?.provider || 'google';
   const userApiKey = input.config?.apiKey;
-  
+
   if (!userApiKey) {
     throw new Error(`請先前往「設定」頁面設定您的 ${provider === 'google' ? 'Gemini' : 'Groq'} API Key。`);
   }
@@ -43,33 +51,76 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     const modelId = input.config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
     const ai = createAi(provider, userApiKey);
 
+    // ── 步驟 1：嘗試抓取 YouTube 字幕 ──────────────────────────────────────
+    const captionResult = input.videoId.length === 11
+      ? await fetchYouTubeCaptions(input.videoId).catch(() => null)
+      : null;
+
+    let prompt: string;
+    let expectedSource: 'server-sub' | 'server-sub-auto' | 'genkit-ai';
+
+    if (captionResult && captionResult.captions.length >= 3) {
+      // ── 有字幕：Gemini 只需補假名 + 翻譯 ──────────────────────────────
+      expectedSource = captionResult.isAuto ? 'server-sub-auto' : 'server-sub';
+
+      const captionLines = captionResult.captions
+        .map(c => `[${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
+        .join('\n');
+
+      prompt = `你是一位日語語言學專家。以下是 YouTube 影片「${input.videoTitle || '未知'}」的${captionResult.isAuto ? '自動生成' : '官方'}字幕：
+
+${captionLines}
+
+請嚴格按照上方字幕的時間戳與文字，為每一段進行以下處理：
+
+【振假名標注規則 - 極其重要】
+1. 漢字及其連動的活用語尾必須視為一個「單一 word」：
+   - 正確：word: "去られ", reading: "さられ"（不可拆分）
+   - 正確：word: "笑った", reading: "わらった"
+2. 日文原文中的每一個漢字都必須在 furigana 陣列中有對應項目。
+3. reading 必須是純平假名，代表該完整 word 的正確讀音。
+
+【翻譯規則】
+- 翻譯必須優美、符合語境，使用繁體中文。
+- 保留原文的時間戳（start/end）。
+- 輸出必須嚴格遵守 JSON Schema，id 欄位填入空字串即可。`;
+    } else {
+      // ── 無字幕：Gemini 完整生成 ────────────────────────────────────────
+      expectedSource = 'genkit-ai';
+
+      prompt = `你是一位日語語言學專家。你的任務是解析 YouTube 影片 ID: ${input.videoId}（標題：${input.videoTitle || '未知'}）的完整內容。
+
+請生成逐字幕內容，每段包含：開始/結束時間（秒）、日文原文、振假名標注、繁體中文翻譯。
+
+【振假名標注規則 - 極其重要】
+1. 漢字及其連動的活用語尾必須視為一個「單一 word」：
+   - 正確：word: "去られ", reading: "さられ"
+   - 正確：word: "笑った", reading: "わらった"
+   - 嚴禁：將 "去" 與 "られ" 分開標注。
+2. 日文原文中的每一個漢字都必須在 furigana 陣列中有對應項目。
+3. reading 必須是純平假名。
+
+【內容要求】
+- 繁體中文翻譯必須優美且符合語境。
+- 輸出必須嚴格遵守 JSON Schema。`;
+    }
+
+    // ── 步驟 2：呼叫 Gemini ──────────────────────────────────────────────
     const { output } = await ai.generate({
       model: modelId,
       output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
-      prompt: `
-        你是一位日語語言學專家。你的任務是解析影片 ID: ${input.videoId} (標題: ${input.videoTitle || '未知'}) 的內容。
-
-        【複合單元標註命令 - 極其重要】
-        1. 漢字及其連動的活用語尾必須被視為一個「單一 word」標註。
-           - 正確範例：word: "去られ", reading: "さられ"
-           - 正確範例：word: "笑った", reading: "わらった"
-           - 嚴禁：將 "去" 與 "られ" 分開標註。這會導致羅馬拼音層出現漢字。
-        2. 全漢字覆蓋：日文原文中的每一個漢字都必須在 furigana 陣列中有對應項目。
-        3. 讀音保證：讀音 (reading) 必須是純平假名，且代表該完整 word 的讀音。
-
-        【內容要求】
-        - 繁體中文翻譯必須優美且符合語境。
-        - 輸出必須嚴格遵守 JSON Schema。
-      `,
+      prompt,
     });
 
-    if (!output?.segments) throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
+    if (!output?.segments || output.segments.length === 0) {
+      throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
+    }
 
     return {
       videoId: input.videoId,
       duration: output.segments[output.segments.length - 1]?.end || 0,
       segments: output.segments.map((s: any) => ({ ...s, id: crypto.randomUUID() })),
-      source: 'genkit-ai' as const,
+      source: expectedSource,
     };
   } catch (error: any) {
     console.error('Error in analyzeVideoAction:', error);
@@ -93,7 +144,7 @@ export async function annotateSegmentsAction(
 ) {
   const provider = config?.provider || 'google';
   const userApiKey = config?.apiKey;
-  
+
   if (!userApiKey) {
     throw new Error(`請提供 ${provider === 'google' ? 'Gemini' : 'Groq'} API Key。`);
   }
@@ -102,25 +153,23 @@ export async function annotateSegmentsAction(
     const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
     const ai = createAi(provider, userApiKey);
 
-    const segmentLines = segments.map(s => `- [${s.start}s - ${s.end}s] ${s.text}`).join('\n        ');
+    const segmentLines = segments.map(s => `- [${s.start}s - ${s.end}s] ${s.text}`).join('\n');
 
     const { output } = await ai.generate({
       model: modelId,
       output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
-      prompt: `
-        請為以下段落進行日語標註。
-        【複合單元規則】：漢字與其活用語尾（如：去られ、合う、目覺めて、笑った）必須視為一個單元標註。
-        確保讀音 (reading) 為純平假名並包含整個單元的讀音。
+      prompt: `請為以下段落進行日語標注。
+【複合單元規則】：漢字與其活用語尾（如：去られ、合う、目覺めて、笑った）必須視為一個單元標注。
+確保 reading 為純平假名並包含整個單元的讀音。
 
-        輸入：
-        ${segmentLines}
-      `,
+輸入：
+${segmentLines}`,
     });
 
-    if (!output?.annotatedSegments) throw new Error('AI 標註失敗');
+    if (!output?.annotatedSegments) throw new Error('AI 標注失敗');
 
     return {
-      videoId: "custom_" + Date.now(),
+      videoId: 'custom_' + Date.now(),
       duration: segments[segments.length - 1]?.end || 0,
       segments: output.annotatedSegments.map((s: any) => ({ ...s, id: crypto.randomUUID() })),
       source: 'genkit-ai' as const,
@@ -128,6 +177,6 @@ export async function annotateSegmentsAction(
   } catch (error: any) {
     console.error('Error in annotateSegmentsAction:', error);
     const msg: string = error.message || '';
-    throw new Error(msg || 'AI 標註失敗，請檢查 API Key 或稍後再試。');
+    throw new Error(msg || 'AI 標注失敗，請檢查 API Key 或稍後再試。');
   }
 }

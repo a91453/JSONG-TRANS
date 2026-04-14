@@ -25,7 +25,8 @@ export function useAnalyze() {
 
   const simulateStages = useCallback(async () => {
     const stages = [
-      { d: 1.5, t: "正在連線至 AI 引擎 🚀" },
+      { d: 1.2, t: "正在搜尋 YouTube 字幕…" },
+      { d: 2.0, t: "正在連線至 AI 引擎 🚀" },
       { d: 2.5, t: "正在解析日文語法與讀音 📝" },
       { d: 1.5, t: "正在翻譯並同步時間軸…" }
     ];
