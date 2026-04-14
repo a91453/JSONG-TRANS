@@ -40,7 +40,7 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
   }
 
   try {
-    const modelId = input.config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash-lite' : 'openai/llama-3.3-70b-versatile');
+    const modelId = input.config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
     const ai = createAi(provider, userApiKey);
 
     const { output } = await ai.generate({
@@ -93,7 +93,7 @@ export async function annotateSegmentsAction(
   }
 
   try {
-    const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash-lite' : 'openai/llama-3.3-70b-versatile');
+    const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
     const ai = createAi(provider, userApiKey);
 
     const segmentLines = segments.map(s => `- [${s.start}s - ${s.end}s] ${s.text}`).join('\n        ');

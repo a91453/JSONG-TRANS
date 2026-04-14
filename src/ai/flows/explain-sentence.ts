@@ -35,7 +35,7 @@ export async function explainSentenceAction(
     throw new Error(`請先在設定中提供 ${provider === 'google' ? 'Gemini' : 'Groq'} API Key 才能使用 AI 解說功能。`);
   }
 
-  const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash-lite' : 'openai/llama-3.3-70b-versatile');
+  const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
   const ai = createAi(provider, userApiKey);
 
   try {

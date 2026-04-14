@@ -76,7 +76,7 @@ export default function SettingsPage() {
   useEffect(() => { setIsMounted(true); }, []);
   if (!isMounted) return null;
 
-  const currentGeminiLimit = GEMINI_LIMITS[settings.geminiModel] || GEMINI_LIMITS["googleai/gemini-2.5-flash-lite"];
+  const currentGeminiLimit = GEMINI_LIMITS[settings.geminiModel] || GEMINI_LIMITS["googleai/gemini-2.5-flash"];
   const currentGroqLimit = GROQ_LIMITS[settings.groqModel] || GROQ_LIMITS["openai/llama-3.3-70b-versatile"];
 
   const exportDictionary = () => {
@@ -154,9 +154,9 @@ export default function SettingsPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="rounded-xl">
-                          <SelectItem value="googleai/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (最快)</SelectItem>
-                          <SelectItem value="googleai/gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
+                          <SelectItem value="googleai/gemini-2.5-flash">Gemini 2.5 Flash (建議)</SelectItem>
                           <SelectItem value="googleai/gemini-2.5-pro">Gemini 2.5 Pro (深度)</SelectItem>
+                          <SelectItem value="googleai/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (預覽)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
