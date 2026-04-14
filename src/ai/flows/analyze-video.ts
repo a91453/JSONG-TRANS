@@ -39,6 +39,39 @@ function toTimestamp(sec: number): string {
   return `${m}:${s}`;
 }
 
+/** 判斷是否為 503 暫時性錯誤 */
+function is503(msg: string, code?: number): boolean {
+  return (
+    code === 503 ||
+    msg.includes('503') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('Service Unavailable') ||
+    msg.includes('high demand')
+  );
+}
+
+/** 帶重試的 ai.generate（503 最多重試 2 次） */
+async function generateWithRetry(
+  ai: Awaited<ReturnType<typeof import('@/ai/genkit').createAi>>,
+  options: Parameters<typeof ai.generate>[0],
+  maxRetries = 2
+): Promise<Awaited<ReturnType<typeof ai.generate>>> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await ai.generate(options);
+    } catch (err: any) {
+      if (is503(err.message || '', err.code) && attempt < maxRetries) {
+        const delay = (attempt + 1) * 4000; // 4s, 8s
+        console.log(`503 detected, retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('重試次數已耗盡');
+}
+
 export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInputSchema>) {
   const provider = input.config?.provider || 'google';
   const userApiKey = input.config?.apiKey;
@@ -105,8 +138,8 @@ ${captionLines}
 - 輸出必須嚴格遵守 JSON Schema。`;
     }
 
-    // ── 步驟 2：呼叫 Gemini ──────────────────────────────────────────────
-    const { output } = await ai.generate({
+    // ── 步驟 2：呼叫 Gemini（503 自動重試）─────────────────────────────
+    const { output } = await generateWithRetry(ai, {
       model: modelId,
       output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
       prompt,
@@ -125,6 +158,10 @@ ${captionLines}
   } catch (error: any) {
     console.error('Error in analyzeVideoAction:', error);
     const msg: string = error.message || '';
+    const code: number = error.code || 0;
+    if (is503(msg, code)) {
+      throw new Error('AI 服務目前流量過高，已自動重試仍失敗。請稍候幾秒後再試一次。');
+    }
     if (msg.includes('429') || msg.includes('Quota') || msg.includes('limit') || msg.includes('RESOURCE_EXHAUSTED')) {
       throw new Error('API 請求配額已滿，請稍候 30 秒再試。');
     }
