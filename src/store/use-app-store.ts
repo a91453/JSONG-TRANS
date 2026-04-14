@@ -52,7 +52,7 @@ export const useSettingsStore = create<SettingsState>()(
       showTranslation: true,
       aiProvider: 'google',
       geminiApiKey: '',
-      geminiModel: 'googleai/gemini-1.5-flash',
+      geminiModel: 'googleai/gemini-2.5-flash-lite',
       groqApiKey: '',
       groqModel: 'openai/llama-3.3-70b-versatile',
       setThemeMode: (themeMode) => set({ themeMode }),

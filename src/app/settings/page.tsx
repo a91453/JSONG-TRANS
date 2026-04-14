@@ -54,8 +54,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 // API Rate Limit Data
 const GEMINI_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string }> = {
-  "googleai/gemini-1.5-flash": { rpm: "15", tpm: "1M", rpd: "1,500" },
-  "googleai/gemini-1.5-pro": { rpm: "2", tpm: "32K", rpd: "50" },
+  "googleai/gemini-2.5-flash-lite": { rpm: "30", tpm: "1M", rpd: "1,500" },
+  "googleai/gemini-2.5-flash": { rpm: "15", tpm: "1M", rpd: "500" },
+  "googleai/gemini-2.5-pro": { rpm: "5", tpm: "1M", rpd: "25" },
 };
 
 const GROQ_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string, tpd: string }> = {
@@ -75,7 +76,7 @@ export default function SettingsPage() {
   useEffect(() => { setIsMounted(true); }, []);
   if (!isMounted) return null;
 
-  const currentGeminiLimit = GEMINI_LIMITS[settings.geminiModel] || GEMINI_LIMITS["googleai/gemini-1.5-flash"];
+  const currentGeminiLimit = GEMINI_LIMITS[settings.geminiModel] || GEMINI_LIMITS["googleai/gemini-2.5-flash-lite"];
   const currentGroqLimit = GROQ_LIMITS[settings.groqModel] || GROQ_LIMITS["openai/llama-3.3-70b-versatile"];
 
   const exportDictionary = () => {
@@ -153,8 +154,9 @@ export default function SettingsPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="rounded-xl">
-                          <SelectItem value="googleai/gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
-                          <SelectItem value="googleai/gemini-1.5-pro">Gemini 1.5 Pro (深度)</SelectItem>
+                          <SelectItem value="googleai/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (最快)</SelectItem>
+                          <SelectItem value="googleai/gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
+                          <SelectItem value="googleai/gemini-2.5-pro">Gemini 2.5 Pro (深度)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
