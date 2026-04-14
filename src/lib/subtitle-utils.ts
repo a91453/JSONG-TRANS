@@ -1,7 +1,32 @@
 /**
  * @fileOverview 字幕處理工具 (v3.0)
  * 強化了 SRT 解析器，精準處理時間軸（支援逗號與點號）與多行文字內容。
+ * 另提供秒數→SRT 時間字串轉換與 SRT 匯出功能。
  */
+
+/** 將秒數轉換為 SRT 時間字串 00:00:00,000 */
+export function secondsToSrtTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds - Math.floor(seconds)) * 1000);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+}
+
+/**
+ * 將段落陣列匯出為 SRT 字串（日文 + 中文翻譯雙行）
+ */
+export function generateSRT(
+  segments: Array<{ start: number; end: number; japanese: string; translation?: string }>
+): string {
+  return segments
+    .map((seg, i) => {
+      const lines: string[] = [seg.japanese];
+      if (seg.translation) lines.push(seg.translation);
+      return `${i + 1}\n${secondsToSrtTime(seg.start)} --> ${secondsToSrtTime(seg.end)}\n${lines.join('\n')}`;
+    })
+    .join('\n\n');
+}
 
 /**
  * 將 SRT 時間字串（00:00:00,000 或 00:00:00.000）轉換為秒數

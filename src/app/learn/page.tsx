@@ -17,19 +17,20 @@ import {
 } from "@/store/use-app-store"
 import { useAnalyze } from "@/hooks/use-analyze"
 import { cn, formatTime } from "@/lib/utils"
-import { 
-  PlusCircle, 
+import {
+  PlusCircle,
   PlayCircle,
-  Star, 
-  Loader2, 
-  RotateCcw, 
-  Info, 
-  Repeat, 
+  Star,
+  Loader2,
+  RotateCcw,
+  Info,
+  Repeat,
   MoreVertical,
   Share2,
   AlertTriangle,
   Lightbulb,
-  BookOpen
+  BookOpen,
+  Download
 } from "lucide-react"
 import { Segment } from "@/types"
 import { 
@@ -47,6 +48,7 @@ import {
 import { convertToRomaji } from "@/lib/romaji-utils"
 import { explainSentenceAction, type ExplainOutput } from "@/ai/flows/explain-sentence"
 import { speak } from "@/lib/speech"
+import { generateSRT } from "@/lib/subtitle-utils"
 
 function LearnContent() {
   const searchParams = useSearchParams()
@@ -213,6 +215,19 @@ function LearnContent() {
     toast({ title: "已複製逐字稿" });
   }
 
+  const handleDownloadSRT = () => {
+    if (!response) return;
+    const srt = generateSRT(response.segments);
+    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${videoTitle || 'subtitles'}.srt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "SRT 已下載", description: `${response.segments.length} 段字幕` });
+  }
+
   if (errorMessage) {
     return (
       <div className="flex flex-col items-center justify-center h-screen space-y-6 p-8 text-center bg-background">
@@ -281,6 +296,7 @@ function LearnContent() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="rounded-2xl">
               <DropdownMenuItem onClick={handleShare}><Share2 className="mr-2 h-4 w-4" /> 分享逐字稿</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDownloadSRT}><Download className="mr-2 h-4 w-4" /> 下載 SRT 字幕</DropdownMenuItem>
               <DropdownMenuItem onClick={() => analyze(v)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

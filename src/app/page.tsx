@@ -13,6 +13,7 @@ import {
 } from "@/store/use-app-store";
 import { extractVideoID, fetchYouTubeInfo } from "@/lib/youtube";
 import { parseSRT, parseTXT } from "@/lib/subtitle-utils";
+import { fetchYouTubeSRT } from "@/lib/youtube-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,6 +60,7 @@ export default function HomePage() {
   const [youtubeLink, setYoutubeLink] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isFetchingSRT, setIsFetchingSRT] = useState(false);
   const [manualText, setManualText] = useState("");
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -143,6 +145,28 @@ export default function HomePage() {
       toast({ variant: "destructive", title: "處理失敗", description: err.message });
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  const handleFetchYouTubeSRT = async () => {
+    if (!parsedVideoID) return;
+    setIsFetchingSRT(true);
+    try {
+      const result = await fetchYouTubeSRT(parsedVideoID);
+      if (!result) {
+        toast({ variant: "destructive", title: "無可用字幕", description: "此影片沒有日文字幕，請手動貼上歌詞。" });
+        return;
+      }
+      setManualText(result.srt);
+      setIsImportDialogOpen(true);
+      toast({
+        title: `已擷取 ${result.count} 段字幕`,
+        description: result.isAuto ? "自動生成字幕（精確度較低）" : "官方字幕"
+      });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "擷取失敗", description: err.message });
+    } finally {
+      setIsFetchingSRT(false);
     }
   };
 
@@ -265,13 +289,13 @@ export default function HomePage() {
             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
               <LinkIcon size={18} />
             </div>
-            <Input 
-              placeholder="貼上 YouTube 網址..." 
+            <Input
+              placeholder="貼上 YouTube 網址..."
               className="pl-11 pr-28 h-14 rounded-2xl bg-muted/30 border-none shadow-inner text-sm font-medium placeholder:text-muted-foreground/60"
               value={youtubeLink}
               onChange={(e) => setYoutubeLink(e.target.value)}
             />
-            <Button 
+            <Button
               className={cn(
                 "absolute right-2 top-1/2 -translate-y-1/2 h-10 px-6 rounded-xl font-black text-xs uppercase tracking-widest shadow-md transition-all active:scale-95",
                 parsedVideoID ? "bg-primary text-white" : "bg-muted text-muted-foreground cursor-not-allowed"
@@ -282,6 +306,20 @@ export default function HomePage() {
               分析
             </Button>
           </div>
+
+          {parsedVideoID && (
+            <Button
+              variant="outline"
+              className="w-full h-10 rounded-xl border-dashed border-muted-foreground/30 text-muted-foreground font-bold gap-2 hover:bg-muted/20 text-xs active:scale-[0.99] transition-all"
+              disabled={isFetchingSRT || isImporting}
+              onClick={handleFetchYouTubeSRT}
+            >
+              {isFetchingSRT
+                ? <><Loader2 size={14} className="animate-spin" /> 擷取字幕中...</>
+                : <><FileText size={14} /> 擷取 YouTube 字幕 → 自定義匯入</>
+              }
+            </Button>
+          )}
 
           <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
             <DialogTrigger asChild>
@@ -295,7 +333,7 @@ export default function HomePage() {
               </DialogHeader>
               <div className="py-4 space-y-4">
                 <div className="flex items-center justify-between px-1">
-                  <p className="text-xs text-muted-foreground font-medium">貼上日文原文或上傳字幕檔</p>
+                  <p className="text-xs text-muted-foreground font-medium">貼上日文原文 / SRT 字幕或上傳檔案</p>
                   <div className="flex gap-2">
                     <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".srt,.txt" className="hidden" />
                     <Button variant="secondary" size="sm" className="h-7 rounded-lg text-[10px] font-black gap-1.5" onClick={() => fileInputRef.current?.click()}>
