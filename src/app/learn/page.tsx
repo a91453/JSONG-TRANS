@@ -262,7 +262,7 @@ function LearnContent() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-80px)] bg-background text-foreground overflow-hidden">
-      <div className="w-full bg-black aspect-video relative z-10">
+      <div className="w-full bg-black aspect-video max-h-[25vh] sm:max-h-none relative z-10">
         {v && v.length === 11 ? (
           <YouTube
             videoId={v}
@@ -280,7 +280,7 @@ function LearnContent() {
         )}
       </div>
 
-      <div className="px-6 py-4 flex items-center justify-between border-b bg-muted/20">
+      <div className="px-4 py-2 flex items-center justify-between border-b bg-muted/20">
         <div className="min-w-0 flex-1 mr-4">
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xs font-black truncate text-foreground/80 tracking-wider uppercase">{videoTitle}</h1>
@@ -303,58 +303,56 @@ function LearnContent() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 px-6 py-3 overflow-x-auto no-scrollbar bg-muted/10 border-b">
+      {/* 合併工具列：標注模式 + 字幕偏移（單行可橫向捲動） */}
+      <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
         {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (
           <Button
             key={mode}
             variant="ghost"
             size="sm"
             className={cn(
-              "rounded-full h-8 px-5 text-[10px] font-black shrink-0 uppercase tracking-widest",
+              "rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
               annotationMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
             )}
             onClick={() => { setAnnotationMode(mode); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
           >
-            {mode === 'furigana' && "漢字假名"}
-            {mode === 'romaji' && "羅馬拼音"}
-            {mode === 'both' && "完整標註"}
-            {mode === 'none' && "隱藏標註"}
+            {mode === 'furigana' && "假名"}
+            {mode === 'romaji' && "拼音"}
+            {mode === 'both' && "完整"}
+            {mode === 'none' && "隱藏"}
           </Button>
         ))}
-      </div>
-
-      <div className="flex items-center gap-3 px-6 py-2 bg-muted/5 border-b">
-        <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest shrink-0">字幕偏移</span>
+        <div className="w-px h-4 bg-border shrink-0 mx-1" />
         <button
           onClick={() => setCaptionOffset(prev => +(prev - 0.5).toFixed(1))}
-          className="h-7 px-3 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          className="h-7 px-2.5 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground shrink-0 transition-colors"
         >
-          −0.5s
+          −
         </button>
         <span className={cn(
-          "text-xs font-black tabular-nums min-w-[42px] text-center",
+          "text-[10px] font-black tabular-nums min-w-[36px] text-center shrink-0",
           captionOffset !== 0 ? "text-primary" : "text-muted-foreground"
         )}>
           {captionOffset >= 0 ? `+${captionOffset.toFixed(1)}` : captionOffset.toFixed(1)}s
         </span>
         <button
           onClick={() => setCaptionOffset(prev => +(prev + 0.5).toFixed(1))}
-          className="h-7 px-3 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          className="h-7 px-2.5 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground shrink-0 transition-colors"
         >
-          +0.5s
+          +
         </button>
         {captionOffset !== 0 && (
           <button
             onClick={() => setCaptionOffset(0)}
-            className="h-7 px-3 rounded-full text-[10px] font-black text-muted-foreground hover:text-foreground transition-colors ml-1"
+            className="h-7 px-2 rounded-full text-[9px] font-black text-muted-foreground hover:text-foreground shrink-0 transition-colors"
           >
             重置
           </button>
         )}
       </div>
 
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">
-        <div className="py-24 space-y-12 pb-32">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-4 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">
+        <div className="py-8 sm:py-24 space-y-6 sm:space-y-12 pb-16 sm:pb-32">
           {segments.map((seg, idx) => {
             const isActive = activeSegmentId === seg.id
             const isFav = isFavorited(v, seg.start)
@@ -365,10 +363,10 @@ function LearnContent() {
                 id={`segment-${seg.id}`} 
                 onClick={() => handleSeekToSegment(seg)} 
                 className={cn(
-                  "p-8 rounded-[2.5rem] transition-all duration-700 cursor-pointer relative group border-2 bg-card",
-                  isActive 
-                    ? "border-primary/20 scale-100 shadow-[0_10px_40px_rgba(0,0,0,0.05)]" 
-                    : "border-transparent scale-95 opacity-40 hover:opacity-100"
+                  "p-5 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] transition-all duration-700 cursor-pointer relative group border-2 bg-card",
+                  isActive
+                    ? "border-primary/20 scale-100 shadow-[0_10px_40px_rgba(0,0,0,0.05)]"
+                    : "border-transparent scale-[0.97] sm:scale-95 opacity-40 hover:opacity-100"
                 )}
               >
                 <div className="flex flex-col gap-6">

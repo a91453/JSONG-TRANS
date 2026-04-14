@@ -66,7 +66,7 @@ export function VideoPlayerControls({
   const displayValue = isDragging ? localValue : progress
 
   return (
-    <div className="bg-background text-foreground p-6 pt-2 space-y-6 rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.05)] border-t z-20">
+    <div className="bg-background text-foreground px-4 pt-2 pb-3 sm:p-6 sm:pt-2 space-y-3 sm:space-y-6 rounded-t-[2rem] sm:rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.05)] border-t z-20">
       <div className="space-y-1">
         <Slider
           value={[displayValue]}
@@ -88,7 +88,7 @@ export function VideoPlayerControls({
         </div>
       </div>
 
-      <div className="flex items-center justify-between px-2">
+      <div className="flex items-center justify-between px-1">
         <div className="flex flex-1 items-center justify-around max-w-sm">
           <ControlButton
             icon={isPinned ? Pin : PinOff}
@@ -111,9 +111,9 @@ export function VideoPlayerControls({
           
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex flex-col items-center gap-2 group transition-all">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-muted transition-colors">
-                  <Gauge size={22} className="group-hover:scale-110 transition-transform" />
+              <button className="flex flex-col items-center gap-1.5 sm:gap-2 group transition-all">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center group-hover:bg-muted transition-colors">
+                  <Gauge size={20} className="group-hover:scale-110 transition-transform" />
                 </div>
                 <span className="text-[10px] font-bold text-muted-foreground">{formatRate(playbackRate)}x</span>
               </button>
@@ -139,8 +139,8 @@ export function VideoPlayerControls({
           />
         </div>
 
-        <button onClick={onExplain} className="ml-4 w-12 h-12 rounded-2xl bg-muted flex items-center justify-center text-primary hover:bg-muted/80 transition-colors shadow-sm active:scale-95">
-          <Lightbulb size={24} />
+        <button onClick={onExplain} className="ml-2 w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-muted flex items-center justify-center text-primary hover:bg-muted/80 transition-colors shadow-sm active:scale-95">
+          <Lightbulb size={22} />
         </button>
       </div>
     </div>
@@ -164,18 +164,18 @@ function ControlButton({
     <button
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-2 group transition-all",
+        "flex flex-col items-center gap-1.5 sm:gap-2 group transition-all",
         active ? "text-primary" : "text-foreground"
       )}
     >
       <div className={cn(
-        "w-10 h-10 rounded-full flex items-center justify-center transition-all",
+        "w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all",
         highlight ? "bg-primary text-primary-foreground scale-110 shadow-lg" : "group-hover:bg-muted",
         active && !highlight && "bg-primary/10"
       )}>
-        <Icon 
-          size={22} 
-          className={cn("transition-transform group-hover:scale-110", active && "fill-current")} 
+        <Icon
+          size={20}
+          className={cn("transition-transform group-hover:scale-110", active && "fill-current")}
         />
       </div>
       <span className={cn(
