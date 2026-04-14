@@ -68,6 +68,7 @@ function LearnContent() {
   const [isShadowing, setIsShadowing] = useState(false)
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null)
   
+  const [captionOffset, setCaptionOffset] = useState(0)
   const [isExplaining, setIsExplaining] = useState(false)
   const [explainData, setExplainData] = useState<ExplainOutput | null>(null)
 
@@ -107,7 +108,7 @@ function LearnContent() {
         const time = player.getCurrentTime()
         setCurrentTime(time)
         
-        const active = segments.find(s => time >= s.start && time < s.end)
+        const active = segments.find(s => time >= s.start + captionOffset && time < s.end + captionOffset)
         if (active && active.id !== activeSegmentId) {
           setActiveSegmentId(active.id)
           if (!isPinned) {
@@ -118,11 +119,11 @@ function LearnContent() {
 
         if (loopingSegmentId) {
           const loopSeg = segments.find(s => s.id === loopingSegmentId)
-          if (loopSeg && time >= loopSeg.end - 0.1) {
+          if (loopSeg && time >= loopSeg.end + captionOffset - 0.1) {
             const maxLoops = settings.loopCount
             if (loopCounter + 1 < maxLoops) {
               setLoopCounter(prev => prev + 1)
-              player.seekTo(loopSeg.start, true)
+              player.seekTo(loopSeg.start + captionOffset, true)
             } else {
               setLoopingSegmentId(null)
               setLoopCounter(0)
@@ -130,7 +131,7 @@ function LearnContent() {
             }
           }
         } else if (isShadowing) {
-          const currentSeg = segments.find(s => time >= s.end - 0.1 && time <= s.end + 0.1)
+          const currentSeg = segments.find(s => time >= s.end + captionOffset - 0.1 && time <= s.end + captionOffset + 0.1)
           if (currentSeg) {
             player.pauseVideo()
           }
@@ -138,7 +139,7 @@ function LearnContent() {
       }, 100) 
     }
     return () => clearInterval(interval)
-  }, [player, isPlaying, segments, activeSegmentId, isPinned, loopingSegmentId, loopCounter, isShadowing, settings.loopCount])
+  }, [player, isPlaying, segments, activeSegmentId, isPinned, loopingSegmentId, loopCounter, isShadowing, settings.loopCount, captionOffset])
 
   const handleSeek = (percentage: number) => {
     if (player) player.seekTo(duration * percentage, true)
@@ -146,7 +147,7 @@ function LearnContent() {
 
   const handleSeekToSegment = (seg: Segment) => {
     if (player) {
-      player.seekTo(seg.start, true)
+      player.seekTo(seg.start + captionOffset, true)
       player.playVideo()
       setActiveSegmentId(seg.id)
       setLoopCounter(0)
@@ -160,7 +161,7 @@ function LearnContent() {
     } else {
       setLoopingSegmentId(segId)
       setLoopCounter(0)
-      if (player) player.seekTo(segments.find(s => s.id === segId)?.start || 0, true)
+      if (player) player.seekTo((segments.find(s => s.id === segId)?.start || 0) + captionOffset, true)
     }
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10)
   }
@@ -288,14 +289,14 @@ function LearnContent() {
 
       <div className="flex items-center gap-2 px-6 py-3 overflow-x-auto no-scrollbar bg-muted/10 border-b">
         {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (
-          <Button 
-            key={mode} 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            key={mode}
+            variant="ghost"
+            size="sm"
             className={cn(
-              "rounded-full h-8 px-5 text-[10px] font-black shrink-0 uppercase tracking-widest", 
+              "rounded-full h-8 px-5 text-[10px] font-black shrink-0 uppercase tracking-widest",
               annotationMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-            )} 
+            )}
             onClick={() => { setAnnotationMode(mode); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
           >
             {mode === 'furigana' && "漢字假名"}
@@ -304,6 +305,36 @@ function LearnContent() {
             {mode === 'none' && "隱藏標註"}
           </Button>
         ))}
+      </div>
+
+      <div className="flex items-center gap-3 px-6 py-2 bg-muted/5 border-b">
+        <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest shrink-0">字幕偏移</span>
+        <button
+          onClick={() => setCaptionOffset(prev => +(prev - 0.5).toFixed(1))}
+          className="h-7 px-3 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        >
+          −0.5s
+        </button>
+        <span className={cn(
+          "text-xs font-black tabular-nums min-w-[42px] text-center",
+          captionOffset !== 0 ? "text-primary" : "text-muted-foreground"
+        )}>
+          {captionOffset >= 0 ? `+${captionOffset.toFixed(1)}` : captionOffset.toFixed(1)}s
+        </span>
+        <button
+          onClick={() => setCaptionOffset(prev => +(prev + 0.5).toFixed(1))}
+          className="h-7 px-3 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        >
+          +0.5s
+        </button>
+        {captionOffset !== 0 && (
+          <button
+            onClick={() => setCaptionOffset(0)}
+            className="h-7 px-3 rounded-full text-[10px] font-black text-muted-foreground hover:text-foreground transition-colors ml-1"
+          >
+            重置
+          </button>
+        )}
       </div>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">

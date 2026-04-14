@@ -73,7 +73,7 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
 
   return (
     <div className={cn(
-      "flex flex-wrap items-end gap-x-4 gap-y-14 transition-all duration-700",
+      "flex flex-wrap items-end gap-x-3 gap-y-8 sm:gap-y-14 transition-all duration-700",
       active ? "scale-100 origin-left" : "opacity-30"
     )}>
       {tokens.map((tk, idx) => {
@@ -112,8 +112,8 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
               "px-4 py-2.5 rounded-[1.2rem] transition-all duration-500",
               active ? "bg-primary/5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] border border-primary/10" : "border border-transparent"
             )}>
-              <span 
-                style={{ fontSize: fontSize * 2.4 }} 
+              <span
+                style={{ fontSize: `clamp(${fontSize}px, ${(fontSize * 0.4).toFixed(1)}vw, ${fontSize * 2.4}px)` }}
                 className={cn(
                   "font-bold leading-none tracking-tight block text-center",
                   active ? "text-foreground" : "text-muted-foreground/10"
