@@ -25,8 +25,9 @@ export function useAnalyze() {
 
   const simulateStages = useCallback(async () => {
     const stages = [
-      { d: 0.8, t: "正在搜尋線上歌詞庫…" },
       { d: 0.8, t: "正在比對 YouTube 字幕…" },
+      { d: 0.8, t: "正在搜尋 LrcLib 歌詞庫…" },
+      { d: 1.5, t: "正在進行 Whisper 語音聽寫…" },
       { d: 1.5, t: "正在連線至 AI 引擎 🚀" },
       { d: 2.5, t: "正在解析日文語法與讀音 📝" },
       { d: 1.5, t: "正在翻譯並同步時間軸…" }

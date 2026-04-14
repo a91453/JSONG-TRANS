@@ -303,6 +303,16 @@ function LearnContent() {
         </div>
       </div>
 
+      {/* LrcLib 時間軸偏移提示（MV 可能有前奏，時間軸與純音檔不同） */}
+      {response?.source === 'lrclib' && (
+        <div className="px-4 py-2 bg-teal-50/80 dark:bg-teal-900/20 border-b border-teal-100/60 flex items-center gap-2">
+          <Info size={12} className="text-teal-600 shrink-0" />
+          <p className="text-[10px] text-teal-700 dark:text-teal-300 font-medium leading-tight">
+            LrcLib 時間軸依純音檔計算，YouTube MV 若有前奏請用下方 ＋/－ 調整偏移
+          </p>
+        </div>
+      )}
+
       {/* 合併工具列：標注模式 + 字幕偏移（單行可橫向捲動） */}
       <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
         {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (

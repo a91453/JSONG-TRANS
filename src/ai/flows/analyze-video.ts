@@ -3,18 +3,20 @@
 /**
  * @fileOverview 影片解析 AI 流程
  *
- * 字幕來源優先順序：
- *   1. LrcLib.net  — 同步歌詞庫（最準確時間軸，免 API Key）
- *   2. YouTube timedtext — 官方 / 自動字幕
- *   3. AI 完整生成  — 以上皆無時的最後手段
+ * 字幕來源優先順序（精準度高 → 低）：
+ *   1. YouTube timedtext  — 人工/自動字幕（時間軸 100% 精準，首選）
+ *   2. LrcLib.net         — 同步歌詞庫（快速，但 MV 可能有前奏偏移）
+ *   3. Groq Whisper       — 語音聽寫（完美時間軸，僅限 Groq 使用者）
+ *   4. AI 完整生成        — 最後手段，AI 自行推算時間軸
  *
- * AI 在 1/2 的情況下只需補假名 + 翻譯，速度大幅提升。
+ * 無論來源為何，最終都透過同一 AI 補上振假名 + 繁中翻譯。
  */
 
 import { createAi, z } from '@/ai/genkit';
 import { fetchYouTubeCaptions } from '@/lib/youtube-captions';
 import { searchLrcLib } from '@/lib/lrclib';
 import { groqGenerate } from '@/lib/groq-generate';
+import { transcribeYouTubeWithWhisper } from '@/lib/groq-whisper';
 
 const FuriganaItemSchema = z.object({
   word: z.string().describe('包含漢字的完整語義單元（含活用語尾，如：去られ、笑った）'),
@@ -131,6 +133,18 @@ ${captionLines}
 - 保留原始 start/end 時間戳，id 填入空字串。`;
 }
 
+function buildFullGeneratePrompt(videoId: string, videoTitle: string): string {
+  return `你是一位日語語言學專家。請解析 YouTube 影片 ID: ${videoId}（標題：${videoTitle}）的完整歌詞內容。
+
+請生成逐字幕，每段包含開始/結束時間（秒）、日文原文、振假名、繁體中文翻譯。
+
+【振假名標注規則】
+1. 漢字與活用語尾視為一個 word（去られ→さられ、笑った→わらった）。
+2. 每個漢字都必須有對應的 furigana 項目。
+3. reading 為純平假名。
+4. id 欄位填入空字串。`;
+}
+
 // ── 主流程 ───────────────────────────────────────────────────────────────────
 export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInputSchema>) {
   const provider = input.config?.provider || 'google';
@@ -146,69 +160,92 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     const videoTitle = input.videoTitle || '未知';
     const isYouTube = input.videoId.length === 11;
 
-    // ── 步驟 1：並行搜尋 LrcLib + YouTube 字幕 ──────────────────────────
-    const [lrcResult, captionResult] = await Promise.all([
-      isYouTube
-        ? searchLrcLib(videoTitle).catch(() => null)
-        : null,
+    // ── 步驟 1：並行搜尋 YouTube 字幕 + LrcLib ──────────────────────────
+    // 兩者同時發出請求，不互相等待，速度最快
+    const [captionResult, lrcResult] = await Promise.all([
       isYouTube
         ? fetchYouTubeCaptions(input.videoId).catch(() => null)
         : null,
+      isYouTube
+        ? searchLrcLib(videoTitle).catch(() => null)
+        : null,
     ]);
 
-    // ── 步驟 2：決定來源與 prompt ────────────────────────────────────────
-    type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'genkit-ai';
+    // ── 步驟 2：決定來源 ─────────────────────────────────────────────────
+    type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
     let expectedSource: Source;
     let prompt: string;
 
-    if (lrcResult && lrcResult.segments.length >= 3) {
-      // ── 優先：LrcLib 同步歌詞 ──────────────────────────────────────
-      expectedSource = 'lrclib';
-      prompt = buildAnnotationPrompt(
-        lrcResult.segments.map(s => ({ start: s.start, end: s.end, text: s.text })),
-        `${lrcResult.track.artistName} - ${lrcResult.track.trackName}`,
-        'LrcLib 同步'
-      );
-    } else if (captionResult && captionResult.captions.length >= 3) {
-      // ── 次選：YouTube 字幕 ─────────────────────────────────────────
+    if (captionResult && captionResult.captions.length >= 3) {
+      // ── 優先 1：YouTube 官方/自動字幕（時間軸 100% 精準）────────────
       expectedSource = captionResult.isAuto ? 'server-sub-auto' : 'server-sub';
       prompt = buildAnnotationPrompt(
         captionResult.captions.map(c => ({ start: c.start, end: c.end, text: c.text })),
         videoTitle,
         captionResult.isAuto ? '自動生成' : '官方'
       );
+      console.log(`[Analyze] 使用 YouTube ${captionResult.isAuto ? '自動' : '官方'}字幕（${captionResult.captions.length} 段）`);
+
+    } else if (lrcResult && lrcResult.segments.length >= 3) {
+      // ── 優先 2：LrcLib 同步歌詞（快速，MV 可能有前奏偏移）───────────
+      expectedSource = 'lrclib';
+      prompt = buildAnnotationPrompt(
+        lrcResult.segments.map(s => ({ start: s.start, end: s.end, text: s.text })),
+        `${lrcResult.track.artistName} - ${lrcResult.track.trackName}`,
+        'LrcLib 同步'
+      );
+      console.log(`[Analyze] 使用 LrcLib 歌詞: "${lrcResult.track.artistName} - ${lrcResult.track.trackName}" (${lrcResult.segments.length} 段)`);
+
+    } else if (provider === 'groq' && isYouTube) {
+      // ── 優先 3：Groq Whisper 語音聽寫（時間軸精準，限 Groq 使用者）─
+      console.log('[Analyze] 嘗試 Groq Whisper 語音聽寫...');
+      const whisperSegments = await transcribeYouTubeWithWhisper(input.videoId, userApiKey);
+
+      if (whisperSegments && whisperSegments.length >= 3) {
+        expectedSource = 'whisper-groq';
+        prompt = buildAnnotationPrompt(whisperSegments, videoTitle, 'Whisper 語音聽寫');
+        console.log(`[Analyze] Whisper 成功（${whisperSegments.length} 段）`);
+      } else {
+        // Whisper 失敗，降級至 AI 完整生成
+        console.log('[Analyze] Whisper 失敗，降級至 AI 完整生成');
+        expectedSource = 'genkit-ai';
+        prompt = buildFullGeneratePrompt(input.videoId, videoTitle);
+      }
+
     } else {
-      // ── 最後手段：AI 完整生成 ──────────────────────────────────────
+      // ── 優先 4：AI 完整生成（最後手段）─────────────────────────────
       expectedSource = 'genkit-ai';
-      prompt = `你是一位日語語言學專家。請解析 YouTube 影片 ID: ${input.videoId}（標題：${videoTitle}）的完整歌詞內容。
-
-請生成逐字幕，每段包含開始/結束時間（秒）、日文原文、振假名、繁體中文翻譯。
-
-【振假名標注規則】
-1. 漢字與活用語尾視為一個 word（去られ→さられ、笑った→わらった）。
-2. 每個漢字都必須有對應的 furigana 項目。
-3. reading 為純平假名。
-4. id 欄位填入空字串。`;
+      prompt = buildFullGeneratePrompt(input.videoId, videoTitle);
+      console.log('[Analyze] 使用 AI 完整生成');
     }
 
-    // ── 步驟 3：呼叫 AI ──────────────────────────────────────────────────
+    // ── 步驟 3：呼叫 AI 補上振假名 + 翻譯 ───────────────────────────────
     let finalSegments: z.infer<typeof SegmentSchema>[];
 
     if (provider === 'groq') {
+      const isAnnotation = expectedSource !== 'genkit-ai';
+      const hint = isAnnotation ? ANNOTATED_JSON_HINT : SEGMENTS_JSON_HINT;
       const raw = await groqGenerate(userApiKey, modelId, [
         { role: 'system', content: '你是日語語言學專家，只回傳 JSON，不輸出任何說明文字。' },
-        { role: 'user', content: prompt + '\n\n' + SEGMENTS_JSON_HINT },
+        { role: 'user', content: prompt + '\n\n' + hint },
       ]);
-      finalSegments = parseGroqSegments(raw);
+      finalSegments = isAnnotation ? parseGroqAnnotated(raw) : parseGroqSegments(raw);
     } else {
       const ai = createAi(provider, userApiKey);
+      const isAnnotation = expectedSource !== 'genkit-ai';
+      const outputSchema = isAnnotation
+        ? z.object({ annotatedSegments: z.array(SegmentSchema) })
+        : z.object({ segments: z.array(SegmentSchema) });
+
       const { output } = await generateWithRetry(ai, {
         model: modelId,
-        output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
+        output: { schema: outputSchema },
         prompt,
       });
-      if (!output?.segments?.length) throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
-      finalSegments = output.segments;
+
+      if (!output) throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
+      finalSegments = (output as any).annotatedSegments ?? (output as any).segments;
+      if (!finalSegments?.length) throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
     }
 
     if (!finalSegments?.length) throw new Error('解析失敗，請檢查 API Key 或稍後再試。');
