@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { HiraganaData, KatakanaData, KanaType } from "@/lib/constants/data";
+import { HiraganaAll, KatakanaAll, KanaType } from "@/lib/constants/data";
 import { useProgressStore } from "@/store/use-app-store";
 import { ArrowLeft, Info } from "lucide-react";
 import Link from "next/link";
@@ -18,8 +18,8 @@ export default function KanaGridPage() {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => { setIsMounted(true); }, []);
   const filteredKana = useMemo(() => {
-    const sourceData = charType === "katakana" ? KatakanaData.all : HiraganaData.all;
-    return sourceData.filter(k => k.type === soundType);
+    const sourceData = charType === "katakana" ? KatakanaAll : HiraganaAll;
+    return sourceData.filter((k) => k.type === soundType);
   }, [charType, soundType]);
   const playSound = (char: string) => { speak(char); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); addKana(); };
   if (!isMounted) return null;
@@ -38,7 +38,7 @@ export default function KanaGridPage() {
       </header>
       <main className="flex-1 p-4">
         <div className={cn("grid gap-3 transition-all duration-300", soundType === "yoon" ? "grid-cols-3" : "grid-cols-4 sm:grid-cols-5 md:grid-cols-6")}>
-          {filteredKana.map((kana, idx) => (
+          {filteredKana.map((kana: { character: string; romaji: string }, idx: number) => (
             <button key={`${kana.character}-${idx}`} onClick={() => playSound(kana.character)} className={cn("aspect-square flex flex-col items-center justify-center bg-card rounded-2xl border border-border shadow-sm active:scale-95 active:bg-primary/5 transition-all group hover:border-primary/40 animate-in fade-in zoom-in-95 duration-300")}>
               <span className={cn("text-3xl font-bold transition-colors leading-none text-primary")}>{kana.character}</span>
               <span className="text-[10px] font-mono text-muted-foreground mt-2 uppercase tracking-tighter">{kana.romaji}</span>
