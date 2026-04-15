@@ -10,9 +10,9 @@
  *   event: need_google_auth   data: {}
  */
 
-// Vercel 函式逾時設定：Pro 方案最長 300s，Hobby 方案 60s
-// 音頻下載 + Whisper 轉錄 + AI 標注最長可達 3-4 分鐘
-export const maxDuration = 300;
+// Vercel 函式逾時：60s 是 Hobby 與 Pro 共同安全上限
+// （Cloud Run Whisper ~3 min 會超時，但 YT 字幕 + LrcLib + AI 批注通常在 40s 內完成）
+export const maxDuration = 60;
 
 // event: batch       data: { segments: Segment[], batchIndex: number, totalBatches: number }
 // event: done        data: { source: string, totalSegments: number, duration: number, videoId: string }

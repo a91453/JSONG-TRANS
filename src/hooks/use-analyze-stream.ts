@@ -34,7 +34,9 @@ export function useAnalyzeStream() {
   const router           = useRouter();
   const historyStore     = useHistoryStore();
   const settings         = useSettingsStore();
-  const isLoadingRef     = useRef(false);
+  const isLoadingRef       = useRef(false);
+  // Ref 版本的 needGoogleAuth，供 useCallback 內的 async 閉包讀取（避免 stale state）
+  const needGoogleAuthRef  = useRef(false);
   const { signIn, getValidToken, isSigningIn } = useGoogleAuth();
 
   // ── 核心分析函式 ────────────────────────────────────────────────────────────
@@ -68,7 +70,8 @@ export function useAnalyzeStream() {
     }
 
     setIsLoading(true);
-    isLoadingRef.current = true;
+    isLoadingRef.current    = true;
+    needGoogleAuthRef.current = false;
     setErrorMessage(null);
     setResponse(null);
     setStreamedSegments([]);
@@ -155,6 +158,7 @@ export function useAnalyzeStream() {
                 setLoadingStage(payload.text);
 
               } else if (evt === 'need_google_auth') {
+                needGoogleAuthRef.current = true;
                 setNeedGoogleAuth(true);
                 setIsLoading(false);
                 isLoadingRef.current = false;
@@ -183,8 +187,8 @@ export function useAnalyzeStream() {
         }
       }
 
-      // need_google_auth 時提前跳出，不儲存結果
-      if (needGoogleAuth) return;
+      // need_google_auth 時提前跳出，不儲存空結果（用 ref 避免 stale closure）
+      if (needGoogleAuthRef.current) return;
 
       // ── 建立最終回應並存入 localStorage ──────────────────────────────
       const finalResponse: AnalyzeResponse = {
