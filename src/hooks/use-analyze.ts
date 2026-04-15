@@ -40,14 +40,19 @@ export function useAnalyze() {
     }
   }, []);
 
-  const analyze = useCallback(async (videoId: string) => {
+  /**
+   * @param videoId - YouTube / custom / file ID
+   * @param forceRefresh - 跳過所有快取，強制重新分析（「重新分析」按鈕使用）
+   */
+  const analyze = useCallback(async (videoId: string, forceRefresh = false) => {
     if (!videoId || (videoId.length !== 11 && !videoId.startsWith('file-') && !videoId.startsWith('custom_'))) return;
+    // 防止重複觸發（setResponse(null) 會引發 useEffect 重新呼叫）
+    if (isLoadingRef.current) return;
 
     const provider = settings.aiProvider;
     const apiKey = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey;
     const model = provider === 'google' ? settings.geminiModel : settings.groqModel;
 
-    // 檢查是否有 API Key
     if (!apiKey) {
       toast({
         variant: "destructive",
@@ -64,18 +69,23 @@ export function useAnalyze() {
     setResponse(null);
     setLoadingStage("連線中…");
 
-    // 1. Check Cache
-    const cachedResult = historyStore.results[videoId];
-    if (cachedResult) {
-      setResponse({ ...cachedResult, source: 'cache' });
-      setIsLoading(false);
-      isLoadingRef.current = false;
-      const meta = historyStore.items.find(i => i.videoId === videoId);
-      if (meta) {
-        setVideoTitle(meta.songTitle);
-        setArtistName(meta.artistName);
+    // ── 快取檢查（forceRefresh 時跳過，並清除舊紀錄）────────────────────
+    if (!forceRefresh) {
+      const cachedResult = historyStore.results[videoId];
+      if (cachedResult) {
+        setResponse({ ...cachedResult, source: 'cache' });
+        setIsLoading(false);
+        isLoadingRef.current = false;
+        const meta = historyStore.items.find(i => i.videoId === videoId);
+        if (meta) {
+          setVideoTitle(meta.songTitle);
+          setArtistName(meta.artistName);
+        }
+        return;
       }
-      return;
+    } else {
+      // 刪除 localStorage 快取，確保重新分析
+      historyStore.removeByVideoId(videoId);
     }
 
     try {
@@ -90,16 +100,33 @@ export function useAnalyze() {
       const finalResponse = await analyzeVideoAction({
         videoId,
         videoTitle: title,
-        config: {
-          provider,
-          apiKey,
-          model
-        }
+        forceRefresh,
+        config: { provider, apiKey, model }
       });
 
       setResponse(finalResponse);
       historyStore.saveResult(finalResponse, title, author);
-      
+
+      // ── 顯示來源提示（讓使用者知道走了哪條管線）──────────────────────
+      const src = finalResponse.source;
+      if (src === 'whisper-groq') {
+        toast({
+          title: "Groq Whisper 語音聽寫",
+          description: "未找到現成字幕，已從音頻轉錄，時間軸精準。",
+        });
+      } else if (src === 'genkit-ai') {
+        toast({
+          title: "AI 推算字幕",
+          description: "找不到任何字幕來源，時間軸由 AI 推估，可能與影片有偏差。",
+          variant: "destructive",
+        });
+      } else if (src === 'lrclib') {
+        toast({
+          title: "LrcLib 歌詞載入",
+          description: "若時間軸與 MV 不同步，請用工具列的 ＋/－ 調整偏移。",
+        });
+      }
+
     } catch (error: any) {
       console.error('Error in useAnalyze:', error);
       const msg = error.message || "";

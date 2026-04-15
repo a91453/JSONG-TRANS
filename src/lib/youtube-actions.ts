@@ -43,6 +43,16 @@ const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
 
 // ── 快取讀寫 ─────────────────────────────────────────────────────────────────
 
+async function deleteCache(videoId: string): Promise<void> {
+  if (!db) return;
+  try {
+    await db.collection('subtitles').doc(videoId).delete();
+    console.log(`[SubtitleCache] 已刪除舊快取: ${videoId}`);
+  } catch {
+    // non-fatal
+  }
+}
+
 async function readCache(videoId: string): Promise<SmartSubtitleResult | null> {
   if (!db) return null;
   try {
@@ -120,11 +130,16 @@ async function fetchExternalTranscription(videoId: string): Promise<RawSegment[]
  */
 export async function getSmartSubtitles(
   videoId: string,
-  videoTitle: string = ''
+  videoTitle: string = '',
+  forceRefresh = false
 ): Promise<SmartSubtitleResult | null> {
-  // ── 1. 查 Firestore 快取 ────────────────────────────────────────────────
-  const cached = await readCache(videoId);
-  if (cached) return cached;
+  // ── 1. 查 Firestore 快取（forceRefresh 時刪除舊快取並跳過）────────────
+  if (forceRefresh) {
+    await deleteCache(videoId);
+  } else {
+    const cached = await readCache(videoId);
+    if (cached) return cached;
+  }
 
   // ── 2. YouTube 官方/自動字幕 ────────────────────────────────────────────
   {

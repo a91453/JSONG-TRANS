@@ -83,10 +83,11 @@ function LearnContent() {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (isValidVideoId && !response) {
+    // isLoading 防護：避免 setResponse(null) 觸發重複呼叫
+    if (isValidVideoId && !response && !isLoading) {
       analyze(v)
     }
-  }, [v, isValidVideoId, analyze, response])
+  }, [v, isValidVideoId, analyze, response, isLoading])
 
   useEffect(() => {
     setAnnotationMode(settings.defaultAnnotation)
@@ -297,7 +298,7 @@ function LearnContent() {
             <DropdownMenuContent align="end" className="rounded-2xl">
               <DropdownMenuItem onClick={handleShare}><Share2 className="mr-2 h-4 w-4" /> 分享逐字稿</DropdownMenuItem>
               <DropdownMenuItem onClick={handleDownloadSRT}><Download className="mr-2 h-4 w-4" /> 下載 SRT 字幕</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => analyze(v)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => analyze(v, true)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

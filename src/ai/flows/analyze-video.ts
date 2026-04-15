@@ -34,6 +34,8 @@ const SegmentSchema = z.object({
 const AnalyzeVideoInputSchema = z.object({
   videoId: z.string(),
   videoTitle: z.string().optional(),
+  /** true = 跳過 Firestore 快取，強制重新抓取 */
+  forceRefresh: z.boolean().optional(),
   config: z.object({
     provider: z.enum(['google', 'groq']).optional(),
     apiKey: z.string().optional(),
@@ -162,7 +164,7 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     // ── 步驟 1：SmartSubtitles（快取守門員）────────────────────────────
     // Firestore 快取 → YouTube 字幕 → LrcLib → 外部服務
     const subtitleResult = isYouTube
-      ? await getSmartSubtitles(input.videoId, videoTitle).catch(() => null)
+      ? await getSmartSubtitles(input.videoId, videoTitle, input.forceRefresh ?? false).catch(() => null)
       : null;
 
     // ── 步驟 2：決定來源 ─────────────────────────────────────────────────

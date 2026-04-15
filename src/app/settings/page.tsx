@@ -47,7 +47,10 @@ import {
   Rocket,
   Info,
   Activity,
-  HelpCircle
+  HelpCircle,
+  GitBranch,
+  CheckCircle2,
+  Circle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -280,6 +283,35 @@ export default function SettingsPage() {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {/* 字幕取得管線說明 */}
+          <Card className="rounded-2xl border bg-muted/10">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <GitBranch size={16} className="text-primary" />
+                <h3 className="text-xs font-bold uppercase tracking-widest">字幕取得管線（自動依序嘗試）</h3>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { step: "1", label: "YouTube 官方／自動字幕", desc: "時間軸 100% 精準，免 AI 成本", color: "text-green-600", bg: "bg-green-500/10" },
+                  { step: "2", label: "LrcLib 同步歌詞庫", desc: "常見日文歌曲皆有收錄，速度快；MV 前奏偏移可手動調整", color: "text-teal-600", bg: "bg-teal-500/10" },
+                  { step: "3", label: "Groq Whisper 語音聽寫", desc: "限 Groq 使用者。以音頻 AI 轉錄，時間軸精準但需下載音頻", color: "text-violet-600", bg: "bg-violet-500/10" },
+                  { step: "4", label: "AI 完整生成（最後手段）", desc: "Gemini / Groq 由 AI 推算歌詞與時間軸，最慢且時間軸可能有誤差", color: "text-orange-600", bg: "bg-orange-500/10" },
+                ].map(({ step, label, desc, color, bg }) => (
+                  <div key={step} className={`flex items-start gap-3 p-3 rounded-xl ${bg}`}>
+                    <span className={`text-[10px] font-black w-5 h-5 rounded-full bg-background flex items-center justify-center shrink-0 mt-0.5 ${color}`}>{step}</span>
+                    <div>
+                      <p className={`text-[11px] font-bold ${color}`}>{label}</p>
+                      <p className="text-[9px] text-muted-foreground leading-relaxed mt-0.5">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[9px] text-muted-foreground leading-relaxed">
+                分析完成後可由歌詞頁頂部的來源標籤（如「人工字幕」「Whisper 聽寫」）確認實際走了哪條路線。
+              </p>
+            </CardContent>
+          </Card>
 
           <Card className="rounded-2xl border bg-muted/10">
             <CardContent className="p-5 space-y-4">
