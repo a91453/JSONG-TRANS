@@ -101,6 +101,8 @@ export function useAnalyze() {
         videoId,
         videoTitle: title,
         forceRefresh,
+        // 無論主要供應商為何，都傳 Groq Key 供 Whisper 使用
+        groqApiKeyForWhisper: settings.groqApiKey || undefined,
         config: { provider, apiKey, model }
       });
 

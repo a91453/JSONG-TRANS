@@ -50,7 +50,8 @@ import {
   HelpCircle,
   GitBranch,
   CheckCircle2,
-  Circle
+  Circle,
+  Mic
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -198,6 +199,41 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   </div>
+                  {/* Whisper 語音聽寫輔助（Gemini 使用者選填） */}
+                  <div className="p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-600">
+                          <Mic size={20} />
+                        </div>
+                        <div>
+                          <Label className="text-sm font-bold">Whisper 語音聽寫輔助</Label>
+                          <p className="text-[9px] text-muted-foreground">選填 Groq Key — 無字幕時自動語音轉錄，與 Gemini 獨立運作</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowGroqKey(!showGroqKey)}>
+                        {showGroqKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </Button>
+                    </div>
+                    <Input
+                      type={showGroqKey ? "text" : "password"}
+                      placeholder="gsk_...（選填）"
+                      className="rounded-xl bg-muted/30 border-none text-xs h-11 font-mono"
+                      value={settings.groqApiKey}
+                      onChange={(e) => settings.setGroqApiKey(e.target.value)}
+                    />
+                    {settings.groqApiKey ? (
+                      <p className="text-[9px] text-violet-600 font-black flex items-center gap-1">
+                        <CheckCircle2 size={10} /> Whisper 已就緒（字幕全部失敗時自動啟用）
+                      </p>
+                    ) : (
+                      <div className="flex justify-end">
+                        <a href="https://console.groq.com/keys" target="_blank" className="text-[9px] font-bold text-violet-600 flex items-center gap-1 hover:underline">
+                          獲取免費 Groq Key <ExternalLink size={10} />
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -295,7 +331,7 @@ export default function SettingsPage() {
                 {[
                   { step: "1", label: "YouTube 官方／自動字幕", desc: "時間軸 100% 精準，免 AI 成本", color: "text-green-600", bg: "bg-green-500/10" },
                   { step: "2", label: "LrcLib 同步歌詞庫", desc: "常見日文歌曲皆有收錄，速度快；MV 前奏偏移可手動調整", color: "text-teal-600", bg: "bg-teal-500/10" },
-                  { step: "3", label: "Groq Whisper 語音聽寫", desc: "限 Groq 使用者。以音頻 AI 轉錄，時間軸精準但需下載音頻", color: "text-violet-600", bg: "bg-violet-500/10" },
+                  { step: "3", label: "Groq Whisper 語音聽寫", desc: "需設定 Groq API Key（Gemini 使用者可在上方 Whisper 輔助欄位選填）。以音頻 AI 轉錄，時間軸精準", color: "text-violet-600", bg: "bg-violet-500/10" },
                   { step: "4", label: "AI 完整生成（最後手段）", desc: "Gemini / Groq 由 AI 推算歌詞與時間軸，最慢且時間軸可能有誤差", color: "text-orange-600", bg: "bg-orange-500/10" },
                 ].map(({ step, label, desc, color, bg }) => (
                   <div key={step} className={`flex items-start gap-3 p-3 rounded-xl ${bg}`}>
