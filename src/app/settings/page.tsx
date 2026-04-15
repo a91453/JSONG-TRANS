@@ -329,9 +329,9 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-2">
                 {[
-                  { step: "1", label: "YouTube 官方／自動字幕", desc: "時間軸 100% 精準，免 AI 成本", color: "text-green-600", bg: "bg-green-500/10" },
-                  { step: "2", label: "LrcLib 同步歌詞庫", desc: "常見日文歌曲皆有收錄，速度快；MV 前奏偏移可手動調整", color: "text-teal-600", bg: "bg-teal-500/10" },
-                  { step: "3", label: "Groq Whisper 語音聽寫", desc: "需設定 Groq API Key（Gemini 使用者可在上方 Whisper 輔助欄位選填）。以音頻 AI 轉錄，時間軸精準", color: "text-violet-600", bg: "bg-violet-500/10" },
+                  { step: "1", label: "Groq Whisper 語音聽寫", desc: "需設定 Groq API Key（Gemini 使用者可在上方 Whisper 輔助欄位選填）。以音頻 AI 轉錄，時間軸最精準", color: "text-violet-600", bg: "bg-violet-500/10" },
+                  { step: "2", label: "YouTube 官方／自動字幕", desc: "時間軸 100% 精準，免 AI 成本", color: "text-green-600", bg: "bg-green-500/10" },
+                  { step: "3", label: "LrcLib 同步歌詞庫", desc: "常見日文歌曲皆有收錄，速度快；MV 前奏偏移可手動調整", color: "text-teal-600", bg: "bg-teal-500/10" },
                   { step: "4", label: "AI 完整生成（最後手段）", desc: "Gemini / Groq 由 AI 推算歌詞與時間軸，最慢且時間軸可能有誤差", color: "text-orange-600", bg: "bg-orange-500/10" },
                 ].map(({ step, label, desc, color, bg }) => (
                   <div key={step} className={`flex items-start gap-3 p-3 rounded-xl ${bg}`}>

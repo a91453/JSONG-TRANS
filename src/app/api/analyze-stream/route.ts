@@ -21,7 +21,6 @@ export const maxDuration = 60;
 import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { groqGenerate }       from '@/lib/groq-generate';
 import { createAi, z }        from '@/ai/genkit';
-import { transcribeYouTubeWithWhisper } from '@/lib/groq-whisper';
 
 // ── 型別 ──────────────────────────────────────────────────────────────────────
 
@@ -194,7 +193,13 @@ export async function POST(req: Request) {
         const isYouTube = typeof videoId === 'string' && videoId.length === 11;
 
         // ── 1. SmartSubtitles（快取守門員）────────────────────────────────
-        send('stage', { text: '正在比對 YouTube 字幕…' });
+        // 新順序：Firestore 快取 → Groq Whisper → YouTube → LrcLib → Cloud Run → null
+        const groqKeyForWhisper =
+          (provider === 'groq' ? apiKey : null) ??
+          (groqApiKeyForWhisper as string | undefined)?.trim() ?? null;
+
+        const stageText = groqKeyForWhisper ? '正在進行 Whisper 語音聽寫…' : '正在比對 YouTube 字幕…';
+        send('stage', { text: stageText });
 
         type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
         let subtitleResult  = null;
@@ -207,25 +212,23 @@ export async function POST(req: Request) {
         if (isYouTube) {
           try {
             subtitleResult = await getSmartSubtitles(
-              videoId, videoTitle, forceRefresh, googleToken
+              videoId, videoTitle, forceRefresh,
+              googleToken,
+              groqKeyForWhisper ?? undefined
             );
           } catch (e: any) {
-            if (e.message === 'YOUTUBE_AUTH_REQUIRED') {
-              // 僅在尚未提供 token 時才要求登入；有 token 卻還失敗則繼續降級
-              if (!googleToken) {
-                send('need_google_auth', {});
-                controller.close();
-                return;
-              }
-              // token 無效 → 繼續降級流程，subtitleResult 保持 null
+            if (e.message === 'YOUTUBE_AUTH_REQUIRED' && !googleToken) {
+              send('need_google_auth', {});
+              controller.close();
+              return;
             }
-            // 其他例外：繼續降級
           }
         }
 
         // ── 2. 決定來源與原始片段 ─────────────────────────────────────────
         if (subtitleResult && subtitleResult.segments.length >= 3) {
           const srcMap: Record<string, Source> = {
+            'whisper-groq':     'whisper-groq',
             'youtube-official': 'server-sub',
             'youtube-auto':     'server-sub-auto',
             'lrclib':           'lrclib',
@@ -233,36 +236,17 @@ export async function POST(req: Request) {
           };
           expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
           rawSegments    = subtitleResult.segments;
-          sourceLabel    = subtitleResult.source === 'lrclib'      ? 'LrcLib 同步'
-                         : subtitleResult.source === 'external'    ? '外部語音服務'
-                         : subtitleResult.source === 'youtube-auto' ? '自動生成' : '官方';
+          sourceLabel    = subtitleResult.source === 'whisper-groq'    ? 'Whisper 語音聽寫'
+                         : subtitleResult.source === 'lrclib'          ? 'LrcLib 同步'
+                         : subtitleResult.source === 'external'        ? '外部語音服務'
+                         : subtitleResult.source === 'youtube-auto'    ? '自動生成' : '官方';
           if (subtitleResult.lrcArtistName && subtitleResult.lrcTrackName) {
             titleForPrompt = `${subtitleResult.lrcArtistName} - ${subtitleResult.lrcTrackName}`;
           }
         } else {
-          // SmartSubtitles 全部失敗 → Groq Whisper → AI 完整生成
-          const groqKeyForWhisper =
-            (provider === 'groq' ? apiKey : null) ??
-            (groqApiKeyForWhisper as string | undefined)?.trim() ?? null;
-
-          if (groqKeyForWhisper && isYouTube) {
-            send('stage', { text: '正在進行 Whisper 語音聽寫…' });
-            const whisperSegs = await transcribeYouTubeWithWhisper(
-              videoId, groqKeyForWhisper
-            ).catch(() => null);
-
-            if (whisperSegs && whisperSegs.length >= 3) {
-              expectedSource = 'whisper-groq';
-              rawSegments    = whisperSegs;
-              sourceLabel    = 'Whisper 語音聽寫';
-            } else {
-              expectedSource = 'genkit-ai';
-              isFullGenerate = true;
-            }
-          } else {
-            expectedSource = 'genkit-ai';
-            isFullGenerate = true;
-          }
+          // 全部管線失敗 → AI 完整生成
+          expectedSource = 'genkit-ai';
+          isFullGenerate = true;
         }
 
         // ── 3. AI 標注（分批流式） ────────────────────────────────────────

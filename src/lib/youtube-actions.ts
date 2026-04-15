@@ -4,7 +4,7 @@
  *
  * SubtitleManager（getSmartSubtitles）是所有字幕請求的「快取守門員」：
  *
- *   快取（Firestore）→ YouTube 官方/自動字幕 → LrcLib → 外部語音服務 → null
+ *   快取（Firestore）→ Groq Whisper → YouTube 官方/自動字幕 → LrcLib → 外部語音服務 → null
  *
  * 快取命中後直接回傳，無需再次呼叫外部 API，大幅降低延遲與費用。
  * Firestore 未配置時（db = null）快取層自動跳過，功能不受影響。
@@ -14,6 +14,7 @@ import { db } from './firebase-admin';
 import { fetchYouTubeCaptions } from './youtube-captions';
 import { searchLrcLib } from './lrclib';
 import { secondsToSrtTime } from './subtitle-utils';
+import { transcribeYouTubeWithWhisper } from './groq-whisper';
 
 // ── 型別定義 ─────────────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ export interface SmartSubtitleResult {
   videoId: string;
   segments: RawSegment[];
   /** 資料來源 */
-  source: 'youtube-official' | 'youtube-auto' | 'lrclib' | 'external';
+  source: 'youtube-official' | 'youtube-auto' | 'lrclib' | 'external' | 'whisper-groq';
   /** LrcLib 曲目資訊（source === 'lrclib' 時提供，用於建立更精確的標注 prompt） */
   lrcTrackName?: string;
   lrcArtistName?: string;
@@ -59,7 +60,6 @@ async function readCache(videoId: string): Promise<SmartSubtitleResult | null> {
     const snap = await db.collection('subtitles').doc(videoId).get();
     if (!snap.exists) return null;
     const data = snap.data() as CachedDoc;
-    // 過期則視為未命中
     if (data.expiresAt && Date.now() > data.expiresAt) {
       console.log(`[SubtitleCache] 快取過期: ${videoId}`);
       return null;
@@ -87,7 +87,7 @@ async function writeCache(result: SmartSubtitleResult): Promise<void> {
   }
 }
 
-// ── 外部語音微服務 ────────────────────────────────────────────────────────────
+// ── 外部語音微服務（Cloud Run）────────────────────────────────────────────────
 
 /**
  * @throws {Error} 當 YouTube 需要 Google 驗證時（服務回傳 403 youtube_auth_required），
@@ -100,20 +100,17 @@ async function fetchExternalTranscription(
   const serviceUrl = process.env.SUBTITLE_SERVICE_URL;
   if (!serviceUrl) return null;
 
-  // 與 Cloud Run 服務共用的密鑰，防止公開濫用
   const headers: Record<string, string> = {};
   const secret = process.env.SUBTITLE_SERVICE_SECRET;
   if (secret) headers['X-Service-Secret'] = secret;
-  // Google OAuth access token（可繞過 YouTube 對 GCP IP 的封鎖）
   if (googleToken) headers['X-Google-Token'] = googleToken;
 
   try {
     const res = await fetch(`${serviceUrl}/api/transcribe?v=${videoId}`, {
       headers,
-      signal: AbortSignal.timeout(180_000), // 3 分鐘：含 yt-dlp 下載 + Whisper 轉錄
+      signal: AbortSignal.timeout(180_000),
     });
     if (!res.ok) {
-      // YouTube 封鎖 GCP IP，需要 Google 登入驗證
       if (res.status === 403) {
         const errData = await res.json().catch(() => ({}));
         if (errData.error === 'youtube_auth_required') {
@@ -128,7 +125,8 @@ async function fetchExternalTranscription(
       (s: any) => typeof s.start === 'number' && typeof s.end === 'number' && s.text
     );
     return segs.length >= 3 ? segs : null;
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message === 'YOUTUBE_AUTH_REQUIRED') throw e;
     console.warn('[SubtitleCache] 外部服務請求失敗:', e);
     return null;
   }
@@ -141,20 +139,27 @@ async function fetchExternalTranscription(
  *
  * 優先順序：
  *   1. Firestore 快取（30 天 TTL）
- *   2. YouTube 官方字幕 → 自動字幕
- *   3. LrcLib 同步歌詞
- *   4. 外部語音微服務（需設定 SUBTITLE_SERVICE_URL 環境變數）
- *   5. 回傳 null（由 analyze-video 降級至 Groq Whisper 或 AI 完整生成）
+ *   2. Groq Whisper 語音聽寫（groqApiKey 有值時啟用，音頻 AI 轉錄，時間軸最精準）
+ *   3. YouTube 官方字幕 → 自動字幕（免 AI 成本，時間軸 100% 精準）
+ *   4. LrcLib 同步歌詞（常見日文歌曲資料庫，速度快）
+ *   5. 外部語音微服務 Cloud Run（需設定 SUBTITLE_SERVICE_URL）
+ *   6. 回傳 null → 由 analyze-video 降級至 AI 完整生成
  *
- * @param videoId    - YouTube 11 位影片 ID
- * @param videoTitle - 影片標題（用於 LrcLib 搜尋）
+ * @param videoId     - YouTube 11 位影片 ID
+ * @param videoTitle  - 影片標題（用於 LrcLib 搜尋）
+ * @param forceRefresh - 清除快取並重新抓取
+ * @param googleToken - Google OAuth token（Cloud Run 繞過 IP 封鎖用）
+ * @param groqApiKey  - Groq API Key（啟用 Whisper 語音聽寫，優先於 YouTube 字幕）
  */
 export async function getSmartSubtitles(
   videoId: string,
   videoTitle: string = '',
   forceRefresh = false,
-  googleToken?: string
+  googleToken?: string,
+  groqApiKey?: string
 ): Promise<SmartSubtitleResult | null> {
+  const isYouTube = videoId.length === 11;
+
   // ── 1. 查 Firestore 快取（forceRefresh 時刪除舊快取並跳過）────────────
   if (forceRefresh) {
     await deleteCache(videoId);
@@ -163,8 +168,25 @@ export async function getSmartSubtitles(
     if (cached) return cached;
   }
 
-  // ── 2. YouTube 官方/自動字幕 ────────────────────────────────────────────
-  {
+  // ── 2. Groq Whisper（有 groqApiKey 時優先，音頻轉錄最精準）────────────
+  if (groqApiKey && isYouTube) {
+    console.log(`[SubtitleManager] 嘗試 Groq Whisper...`);
+    const whisperSegs = await transcribeYouTubeWithWhisper(videoId, groqApiKey).catch(() => null);
+    if (whisperSegs && whisperSegs.length >= 3) {
+      const result: SmartSubtitleResult = {
+        videoId,
+        segments: whisperSegs.map(s => ({ start: s.start, end: s.end, text: s.text })),
+        source: 'whisper-groq',
+      };
+      await writeCache(result);
+      console.log(`[SubtitleManager] Whisper 成功（${result.segments.length} 段）`);
+      return result;
+    }
+    console.log(`[SubtitleManager] Whisper 失敗，繼續下一管線`);
+  }
+
+  // ── 3. YouTube 官方/自動字幕 ────────────────────────────────────────────
+  if (isYouTube) {
     const captionResult = await fetchYouTubeCaptions(videoId).catch(() => null);
     if (captionResult && captionResult.captions.length >= 3) {
       const result: SmartSubtitleResult = {
@@ -177,7 +199,7 @@ export async function getSmartSubtitles(
     }
   }
 
-  // ── 3. LrcLib 同步歌詞 ──────────────────────────────────────────────────
+  // ── 4. LrcLib 同步歌詞 ──────────────────────────────────────────────────
   if (videoTitle) {
     const lrcResult = await searchLrcLib(videoTitle).catch(() => null);
     if (lrcResult && lrcResult.segments.length >= 3) {
@@ -193,7 +215,7 @@ export async function getSmartSubtitles(
     }
   }
 
-  // ── 4. 外部語音微服務（SUBTITLE_SERVICE_URL 環境變數未設定則跳過）─────
+  // ── 5. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
   {
     const extSegments = await fetchExternalTranscription(videoId, googleToken);
     if (extSegments) {
@@ -207,7 +229,7 @@ export async function getSmartSubtitles(
     }
   }
 
-  // ── 5. 全部失敗 → 回傳 null，由上層降級 ─────────────────────────────────
+  // ── 6. 全部失敗 → 回傳 null，由上層降級至 AI 完整生成 ─────────────────
   return null;
 }
 

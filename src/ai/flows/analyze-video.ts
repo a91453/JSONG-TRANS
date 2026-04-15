@@ -15,7 +15,6 @@
 import { createAi, z } from '@/ai/genkit';
 import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { groqGenerate } from '@/lib/groq-generate';
-import { transcribeYouTubeWithWhisper } from '@/lib/groq-whisper';
 
 const FuriganaItemSchema = z.object({
   word: z.string().describe('包含漢字的完整語義單元（含活用語尾，如：去られ、笑った）'),
@@ -167,9 +166,18 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     const isYouTube = input.videoId.length === 11;
 
     // ── 步驟 1：SmartSubtitles（快取守門員）────────────────────────────
-    // Firestore 快取 → YouTube 字幕 → LrcLib → 外部服務
+    // 優先順序：Firestore 快取 → Groq Whisper → YouTube 字幕 → LrcLib → Cloud Run → null
+    const groqKeyForWhisper = (provider === 'groq' ? userApiKey : null)
+      ?? input.groqApiKeyForWhisper?.trim() ?? null;
+
     const subtitleResult = isYouTube
-      ? await getSmartSubtitles(input.videoId, videoTitle, input.forceRefresh ?? false).catch(() => null)
+      ? await getSmartSubtitles(
+          input.videoId,
+          videoTitle,
+          input.forceRefresh ?? false,
+          undefined,                           // googleToken（非串流路徑不傳）
+          groqKeyForWhisper ?? undefined        // groqApiKey → 啟用 Whisper 優先
+        ).catch(() => null)
       : null;
 
     // ── 步驟 2：決定來源 ─────────────────────────────────────────────────
@@ -178,20 +186,20 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     let prompt: string;
 
     if (subtitleResult && subtitleResult.segments.length >= 3) {
-      // ── 優先 1-4：SmartSubtitles 成功（含快取、YouTube、LrcLib、外部服務）
+      // SmartSubtitles 成功（含 Whisper、YouTube、LrcLib、Cloud Run）
       const srcMap: Record<string, Source> = {
-        'youtube-official': 'server-sub',
-        'youtube-auto':     'server-sub-auto',
-        'lrclib':           'lrclib',
-        'external':         'server-sub',
+        'whisper-groq':      'whisper-groq',
+        'youtube-official':  'server-sub',
+        'youtube-auto':      'server-sub-auto',
+        'lrclib':            'lrclib',
+        'external':          'server-sub',
       };
       expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
 
-      const sourceLabel = subtitleResult.source === 'lrclib'
-        ? 'LrcLib 同步'
-        : subtitleResult.source === 'external'
-          ? '外部語音服務'
-          : subtitleResult.source === 'youtube-auto' ? '自動生成' : '官方';
+      const sourceLabel = subtitleResult.source === 'whisper-groq'    ? 'Whisper 語音聽寫'
+                        : subtitleResult.source === 'lrclib'           ? 'LrcLib 同步'
+                        : subtitleResult.source === 'external'         ? '外部語音服務'
+                        : subtitleResult.source === 'youtube-auto'     ? '自動生成' : '官方';
 
       const titleForPrompt = subtitleResult.lrcArtistName && subtitleResult.lrcTrackName
         ? `${subtitleResult.lrcArtistName} - ${subtitleResult.lrcTrackName}`
@@ -201,33 +209,11 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
       console.log(`[Analyze] 來源: ${subtitleResult.source} (${subtitleResult.segments.length} 段)`);
 
     } else {
-      // SmartSubtitles 全部失敗 ─────────────────────────────────────────
-      // ── 優先 3：Groq Whisper（有 Groq Key 即可，與主要 AI 供應商無關）
-      //    Groq 使用者：userApiKey 即 Groq Key
-      //    Gemini 使用者：可在設定中選填 groqApiKeyForWhisper 啟用 Whisper
-      const groqKeyForWhisper = (provider === 'groq' ? userApiKey : null)
-        ?? input.groqApiKeyForWhisper?.trim() ?? null;
-
-      if (groqKeyForWhisper && isYouTube) {
-        console.log('[Analyze] 嘗試 Groq Whisper 語音聽寫...');
-        const whisperSegments = await transcribeYouTubeWithWhisper(input.videoId, groqKeyForWhisper);
-
-        if (whisperSegments && whisperSegments.length >= 3) {
-          expectedSource = 'whisper-groq';
-          prompt = buildAnnotationPrompt(whisperSegments, videoTitle, 'Whisper 語音聽寫');
-          console.log(`[Analyze] Whisper 成功（${whisperSegments.length} 段）`);
-        } else {
-          console.log('[Analyze] Whisper 失敗，降級至 AI 完整生成');
-          expectedSource = 'genkit-ai';
-          prompt = buildFullGeneratePrompt(input.videoId, videoTitle);
-        }
-      } else {
-        // ── 優先 4：AI 完整生成（無 Groq Key 或非 YouTube）──────────────
-        expectedSource = 'genkit-ai';
-        prompt = buildFullGeneratePrompt(input.videoId, videoTitle);
-        console.log('[Analyze] 使用 AI 完整生成');
-      }
-    } // end outer else (SmartSubtitles 全部失敗)
+      // 所有管線失敗 → AI 完整生成（最後手段）
+      expectedSource = 'genkit-ai';
+      prompt = buildFullGeneratePrompt(input.videoId, videoTitle);
+      console.log('[Analyze] 全部管線失敗，降級至 AI 完整生成');
+    }
 
     // ── 步驟 3：呼叫 AI 補上振假名 + 翻譯 ───────────────────────────────
     let finalSegments: z.infer<typeof SegmentSchema>[];

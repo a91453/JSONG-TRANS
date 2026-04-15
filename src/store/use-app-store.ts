@@ -45,7 +45,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       themeMode: 'system',
-      lyricsFontSize: 20,
+      lyricsFontSize: 15,
       defaultAnnotation: 'furigana',
       loopCount: 3,
       autoPlayOnTap: true,
