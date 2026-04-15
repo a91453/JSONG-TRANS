@@ -15,7 +15,7 @@ import {
   useFavoriteStore,
   useSettingsStore
 } from "@/store/use-app-store"
-import { useAnalyze } from "@/hooks/use-analyze"
+import { useAnalyzeStream } from "@/hooks/use-analyze-stream"
 import { cn, formatTime } from "@/lib/utils"
 import {
   PlusCircle,
@@ -30,7 +30,8 @@ import {
   AlertTriangle,
   Lightbulb,
   BookOpen,
-  Download
+  Download,
+  LogIn
 } from "lucide-react"
 import { Segment } from "@/types"
 import { 
@@ -77,7 +78,11 @@ function LearnContent() {
   const { toast } = useToast()
   const { addEntry, addAllFromSegment, contains: dictContains } = useDictionaryStore()
   const { addFavorite, isFavorited } = useFavoriteStore()
-  const { response, isLoading, errorMessage, loadingStage, videoTitle, artistName, analyze } = useAnalyze()
+  const {
+    response, streamedSegments, isLoading, isSigningIn,
+    errorMessage, loadingStage, videoTitle, artistName,
+    needGoogleAuth, analyze, handleGoogleSignIn, dismissGoogleAuth,
+  } = useAnalyzeStream()
 
   const isValidVideoId = v && (v.length === 11 || v.startsWith('custom_') || v.startsWith('file-'))
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -93,7 +98,8 @@ function LearnContent() {
     setAnnotationMode(settings.defaultAnnotation)
   }, [settings.defaultAnnotation])
 
-  const segments = response?.segments || []
+  // streamedSegments grows batch-by-batch during SSE; falls back to response.segments on cache hit
+  const segments = streamedSegments.length > 0 ? streamedSegments : (response?.segments ?? [])
 
   const onReady: YouTubeProps['onReady'] = (event) => {
     setPlayer(event.target)
@@ -245,7 +251,8 @@ function LearnContent() {
     )
   }
 
-  if (isLoading) {
+  // Initial loading: no segments yet — show full-screen spinner
+  if (isLoading && segments.length === 0) {
     return (
       <div className="flex flex-col h-screen bg-background overflow-hidden">
         <div className="w-full bg-black aspect-video flex items-center justify-center border-b">
@@ -303,6 +310,15 @@ function LearnContent() {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* 串流進行中：顯示已載入段落數 + 進度指示條 */}
+      {isLoading && segments.length > 0 && (
+        <div className="px-4 py-1.5 bg-primary/5 border-b border-primary/10 flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
+          <p className="text-[10px] text-primary font-black uppercase tracking-widest animate-pulse">{loadingStage}</p>
+          <span className="ml-auto text-[9px] text-primary/60 font-bold tabular-nums">{segments.length} 段</span>
+        </div>
+      )}
 
       {/* LrcLib 時間軸偏移提示（MV 可能有前奏，時間軸與純音檔不同） */}
       {response?.source === 'lrclib' && (
@@ -467,6 +483,47 @@ function LearnContent() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Google 登入 Modal（YouTube 封鎖 GCP IP 時觸發）─────────────── */}
+      <Dialog open={needGoogleAuth} onOpenChange={(open) => !open && dismissGoogleAuth()}>
+        <DialogContent className="rounded-[3rem] max-w-sm bg-background shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-center font-black text-xl uppercase tracking-tighter">
+              YouTube 需要驗證
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="space-y-3 text-center">
+              <p className="text-sm font-bold text-foreground/80">
+                語音轉錄服務所在的伺服器被 YouTube 限流。
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                以 Google 帳號登入後，App 會取得一組短期憑證傳給伺服器，讓 YouTube 認可這是正常的存取請求。
+                憑證僅用於本次下載，50 分鐘後自動失效，且不會被儲存至伺服器。
+              </p>
+            </div>
+            <div className="space-y-3">
+              <Button
+                className="w-full rounded-2xl font-black"
+                onClick={() => handleGoogleSignIn(v)}
+                disabled={isSigningIn}
+              >
+                {isSigningIn
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 登入中…</>
+                  : <><LogIn className="mr-2 h-4 w-4" /> 以 Google 帳號繼續</>
+                }
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full rounded-2xl text-muted-foreground font-bold text-xs"
+                onClick={dismissGoogleAuth}
+              >
+                略過（使用 AI 生成，時間軸可能不準）
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

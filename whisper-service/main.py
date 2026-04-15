@@ -8,11 +8,16 @@ Whisper 語音聽寫微服務 — Google Cloud Run
   4. 回傳帶時間軸的段落給 Next.js
 
 環境變數（在 Cloud Run 或 .env 中設定）：
-  GROQ_API_KEY       — Groq API Key（服務方自備，使用者無需設定）
-  SERVICE_SECRET     — 與 Next.js SUBTITLE_SERVICE_SECRET 一致，防止濫用
-  WHISPER_MODEL      — 可選，預設 whisper-large-v3-turbo
-  YT_DLP_PROXY       — 可選，代理伺服器（若 GCP IP 被 YouTube 封鎖時使用）
+  GROQ_API_KEY        — Groq API Key（服務方自備，使用者無需設定）
+  SERVICE_SECRET      — 與 Next.js SUBTITLE_SERVICE_SECRET 一致，防止濫用
+  WHISPER_MODEL       — 可選，預設 whisper-large-v3-turbo
+  YT_DLP_PROXY        — 可選，代理伺服器（若 GCP IP 被 YouTube 封鎖時使用）
   YT_DLP_COOKIES_FILE — 可選，cookies.txt 路徑（繞過年齡限制或封鎖）
+
+請求標頭：
+  X-Google-Token — 可選，Google OAuth access token（youtube.readonly scope）。
+                   由前端 Firebase Google 登入取得，傳給 yt-dlp 作為 Authorization
+                   標頭，可繞過 GCP IP 封鎖的 YouTube 驗證限制。
 """
 
 import os
@@ -34,6 +39,21 @@ SERVICE_SECRET  = os.environ.get("SERVICE_SECRET", "")
 WHISPER_MODEL   = os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo")
 YT_DLP_PROXY    = os.environ.get("YT_DLP_PROXY", "")
 COOKIES_FILE    = os.environ.get("YT_DLP_COOKIES_FILE", "")
+
+# yt-dlp 下載失敗時判定為「需要 Google 驗證」的關鍵字（YouTube 對 GCP IP 的封鎖訊息）
+YOUTUBE_AUTH_KEYWORDS = [
+    "Sign in to confirm",
+    "sign in to confirm",
+    "bot",
+    "Precondition check failed",
+    "HTTP Error 403",
+    "HTTP Error 429",
+    "age-restricted",
+    "age restricted",
+    "This video is unavailable",
+    "Private video",
+    "cookies",
+]
 
 MAX_AUDIO_MB    = 24          # Groq 上限 25 MB，預留 1 MB 緩衝
 TIMEOUT_GROQ    = 120         # seconds
@@ -62,7 +82,10 @@ def transcribe():
     if not GROQ_API_KEY:
         return jsonify({"error": "GROQ_API_KEY not configured"}), 500
 
-    log.info(f"[{video_id}] 開始處理")
+    # 可選的 Google OAuth access token（youtube.readonly scope）
+    google_token = request.headers.get("X-Google-Token", "").strip()
+
+    log.info(f"[{video_id}] 開始處理（google_token={'yes' if google_token else 'no'}）")
 
     # ── 1. yt-dlp 下載音頻 ────────────────────────────────────────────────
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -90,6 +113,14 @@ def transcribe():
         if COOKIES_FILE and os.path.isfile(COOKIES_FILE):
             ydl_opts["cookiefile"] = COOKIES_FILE
 
+        # 若提供了 Google token，以 Authorization: Bearer 標頭傳給 YouTube
+        # 這可讓已登入的 Google 帳號憑證繞過 GCP IP 封鎖
+        if google_token:
+            ydl_opts["add_headers"] = {
+                "Authorization": f"Bearer {google_token}",
+            }
+            log.info(f"[{video_id}] 使用 Google OAuth token 下載")
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(
@@ -99,8 +130,17 @@ def transcribe():
                 duration = info.get("duration", 0)
                 log.info(f"[{video_id}] 音頻下載完成，時長: {duration:.0f}s")
         except yt_dlp.utils.DownloadError as e:
-            log.error(f"[{video_id}] yt-dlp 錯誤: {e}")
-            return jsonify({"error": f"yt-dlp: {str(e)[:200]}"}), 502
+            err_str = str(e)
+            log.error(f"[{video_id}] yt-dlp 錯誤: {err_str[:300]}")
+            # 偵測 YouTube 驗證封鎖 — 僅在未提供 Google token 時回傳 403
+            # （有 token 卻還失敗代表 token 無效，直接回傳 502 讓上層降級）
+            if not google_token and any(kw in err_str for kw in YOUTUBE_AUTH_KEYWORDS):
+                log.warning(f"[{video_id}] YouTube 封鎖 GCP IP，需要 Google 驗證")
+                return jsonify({
+                    "error": "youtube_auth_required",
+                    "message": "YouTube 封鎖了此 IP，請提供 Google OAuth token 後重試。",
+                }), 403
+            return jsonify({"error": f"yt-dlp: {err_str[:200]}"}), 502
 
         # ── 找到實際輸出檔案 ───────────────────────────────────────────
         audio_files = glob.glob(os.path.join(tmpdir, f"{video_id}.*"))

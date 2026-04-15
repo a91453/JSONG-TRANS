@@ -89,7 +89,14 @@ async function writeCache(result: SmartSubtitleResult): Promise<void> {
 
 // ── 外部語音微服務 ────────────────────────────────────────────────────────────
 
-async function fetchExternalTranscription(videoId: string): Promise<RawSegment[] | null> {
+/**
+ * @throws {Error} 當 YouTube 需要 Google 驗證時（服務回傳 403 youtube_auth_required），
+ *                 拋出 `Error('YOUTUBE_AUTH_REQUIRED')`，由呼叫端決定是否觸發 Google 登入流程。
+ */
+async function fetchExternalTranscription(
+  videoId: string,
+  googleToken?: string
+): Promise<RawSegment[] | null> {
   const serviceUrl = process.env.SUBTITLE_SERVICE_URL;
   if (!serviceUrl) return null;
 
@@ -97,6 +104,8 @@ async function fetchExternalTranscription(videoId: string): Promise<RawSegment[]
   const headers: Record<string, string> = {};
   const secret = process.env.SUBTITLE_SERVICE_SECRET;
   if (secret) headers['X-Service-Secret'] = secret;
+  // Google OAuth access token（可繞過 YouTube 對 GCP IP 的封鎖）
+  if (googleToken) headers['X-Google-Token'] = googleToken;
 
   try {
     const res = await fetch(`${serviceUrl}/api/transcribe?v=${videoId}`, {
@@ -104,6 +113,13 @@ async function fetchExternalTranscription(videoId: string): Promise<RawSegment[]
       signal: AbortSignal.timeout(180_000), // 3 分鐘：含 yt-dlp 下載 + Whisper 轉錄
     });
     if (!res.ok) {
+      // YouTube 封鎖 GCP IP，需要 Google 登入驗證
+      if (res.status === 403) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.error === 'youtube_auth_required') {
+          throw new Error('YOUTUBE_AUTH_REQUIRED');
+        }
+      }
       console.warn(`[SubtitleCache] 外部服務回傳 ${res.status}`);
       return null;
     }
@@ -136,7 +152,8 @@ async function fetchExternalTranscription(videoId: string): Promise<RawSegment[]
 export async function getSmartSubtitles(
   videoId: string,
   videoTitle: string = '',
-  forceRefresh = false
+  forceRefresh = false,
+  googleToken?: string
 ): Promise<SmartSubtitleResult | null> {
   // ── 1. 查 Firestore 快取（forceRefresh 時刪除舊快取並跳過）────────────
   if (forceRefresh) {
@@ -178,7 +195,7 @@ export async function getSmartSubtitles(
 
   // ── 4. 外部語音微服務（SUBTITLE_SERVICE_URL 環境變數未設定則跳過）─────
   {
-    const extSegments = await fetchExternalTranscription(videoId);
+    const extSegments = await fetchExternalTranscription(videoId, googleToken);
     if (extSegments) {
       const result: SmartSubtitleResult = {
         videoId,
