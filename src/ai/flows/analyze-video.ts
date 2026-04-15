@@ -13,8 +13,7 @@
  */
 
 import { createAi, z } from '@/ai/genkit';
-import { fetchYouTubeCaptions } from '@/lib/youtube-captions';
-import { searchLrcLib } from '@/lib/lrclib';
+import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { groqGenerate } from '@/lib/groq-generate';
 import { transcribeYouTubeWithWhisper } from '@/lib/groq-whisper';
 
@@ -160,41 +159,39 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
     const videoTitle = input.videoTitle || '未知';
     const isYouTube = input.videoId.length === 11;
 
-    // ── 步驟 1：並行搜尋 YouTube 字幕 + LrcLib ──────────────────────────
-    // 兩者同時發出請求，不互相等待，速度最快
-    const [captionResult, lrcResult] = await Promise.all([
-      isYouTube
-        ? fetchYouTubeCaptions(input.videoId).catch(() => null)
-        : null,
-      isYouTube
-        ? searchLrcLib(videoTitle).catch(() => null)
-        : null,
-    ]);
+    // ── 步驟 1：SmartSubtitles（快取守門員）────────────────────────────
+    // Firestore 快取 → YouTube 字幕 → LrcLib → 外部服務
+    const subtitleResult = isYouTube
+      ? await getSmartSubtitles(input.videoId, videoTitle).catch(() => null)
+      : null;
 
     // ── 步驟 2：決定來源 ─────────────────────────────────────────────────
     type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
     let expectedSource: Source;
     let prompt: string;
 
-    if (captionResult && captionResult.captions.length >= 3) {
-      // ── 優先 1：YouTube 官方/自動字幕（時間軸 100% 精準）────────────
-      expectedSource = captionResult.isAuto ? 'server-sub-auto' : 'server-sub';
-      prompt = buildAnnotationPrompt(
-        captionResult.captions.map(c => ({ start: c.start, end: c.end, text: c.text })),
-        videoTitle,
-        captionResult.isAuto ? '自動生成' : '官方'
-      );
-      console.log(`[Analyze] 使用 YouTube ${captionResult.isAuto ? '自動' : '官方'}字幕（${captionResult.captions.length} 段）`);
+    if (subtitleResult && subtitleResult.segments.length >= 3) {
+      // ── 優先 1-4：SmartSubtitles 成功（含快取、YouTube、LrcLib、外部服務）
+      const srcMap: Record<string, Source> = {
+        'youtube-official': 'server-sub',
+        'youtube-auto':     'server-sub-auto',
+        'lrclib':           'lrclib',
+        'external':         'server-sub',
+      };
+      expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
 
-    } else if (lrcResult && lrcResult.segments.length >= 3) {
-      // ── 優先 2：LrcLib 同步歌詞（快速，MV 可能有前奏偏移）───────────
-      expectedSource = 'lrclib';
-      prompt = buildAnnotationPrompt(
-        lrcResult.segments.map(s => ({ start: s.start, end: s.end, text: s.text })),
-        `${lrcResult.track.artistName} - ${lrcResult.track.trackName}`,
-        'LrcLib 同步'
-      );
-      console.log(`[Analyze] 使用 LrcLib 歌詞: "${lrcResult.track.artistName} - ${lrcResult.track.trackName}" (${lrcResult.segments.length} 段)`);
+      const sourceLabel = subtitleResult.source === 'lrclib'
+        ? 'LrcLib 同步'
+        : subtitleResult.source === 'external'
+          ? '外部語音服務'
+          : subtitleResult.source === 'youtube-auto' ? '自動生成' : '官方';
+
+      const titleForPrompt = subtitleResult.lrcArtistName && subtitleResult.lrcTrackName
+        ? `${subtitleResult.lrcArtistName} - ${subtitleResult.lrcTrackName}`
+        : videoTitle;
+
+      prompt = buildAnnotationPrompt(subtitleResult.segments, titleForPrompt, sourceLabel);
+      console.log(`[Analyze] 來源: ${subtitleResult.source} (${subtitleResult.segments.length} 段)`);
 
     } else if (provider === 'groq' && isYouTube) {
       // ── 優先 3：Groq Whisper 語音聽寫（時間軸精準，限 Groq 使用者）─
