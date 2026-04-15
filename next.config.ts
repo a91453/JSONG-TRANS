@@ -7,8 +7,11 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Genkit 套件使用 CommonJS 動態 require，需排除在 webpack 打包之外
+  // Genkit 與 Firebase Admin 套件使用 CommonJS 動態 require，需排除在 webpack 打包之外
   serverExternalPackages: [
+    'firebase-admin',
+    'firebase-admin/app',
+    'firebase-admin/firestore',
     'genkit',
     '@genkit-ai/core',
     '@genkit-ai/ai',

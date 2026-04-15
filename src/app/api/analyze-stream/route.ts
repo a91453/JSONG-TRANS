@@ -8,10 +8,15 @@
  * SSE 事件格式：
  *   event: stage       data: { text: string }
  *   event: need_google_auth   data: {}
- *   event: batch       data: { segments: Segment[], batchIndex: number, totalBatches: number }
- *   event: done        data: { source: string, totalSegments: number, duration: number, videoId: string }
- *   event: error       data: { message: string }
  */
+
+// Vercel 函式逾時設定：Pro 方案最長 300s，Hobby 方案 60s
+// 音頻下載 + Whisper 轉錄 + AI 標注最長可達 3-4 分鐘
+export const maxDuration = 300;
+
+// event: batch       data: { segments: Segment[], batchIndex: number, totalBatches: number }
+// event: done        data: { source: string, totalSegments: number, duration: number, videoId: string }
+// event: error       data: { message: string }
 
 import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { groqGenerate }       from '@/lib/groq-generate';
