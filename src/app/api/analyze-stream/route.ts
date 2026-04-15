@@ -193,13 +193,12 @@ export async function POST(req: Request) {
         const isYouTube = typeof videoId === 'string' && videoId.length === 11;
 
         // ── 1. SmartSubtitles（快取守門員）────────────────────────────────
-        // 新順序：Firestore 快取 → Groq Whisper → YouTube → LrcLib → Cloud Run → null
+        // 順序：Firestore 快取 → YouTube → Cloud Run → Groq Whisper → LrcLib → null
         const groqKeyForWhisper =
           (provider === 'groq' ? apiKey : null) ??
           (groqApiKeyForWhisper as string | undefined)?.trim() ?? null;
 
-        const stageText = groqKeyForWhisper ? '正在進行 Whisper 語音聽寫…' : '正在比對 YouTube 字幕…';
-        send('stage', { text: stageText });
+        send('stage', { text: '正在比對 YouTube 字幕…' });
 
         type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
         let subtitleResult  = null;

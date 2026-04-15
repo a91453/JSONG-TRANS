@@ -4,7 +4,7 @@
  *
  * SubtitleManager（getSmartSubtitles）是所有字幕請求的「快取守門員」：
  *
- *   快取（Firestore）→ Groq Whisper → YouTube 官方/自動字幕 → LrcLib → 外部語音服務 → null
+ *   快取（Firestore）→ YouTube 官方/自動字幕 → Cloud Run → Groq Whisper → LrcLib → null
  *
  * 快取命中後直接回傳，無需再次呼叫外部 API，大幅降低延遲與費用。
  * Firestore 未配置時（db = null）快取層自動跳過，功能不受影響。
@@ -139,17 +139,17 @@ async function fetchExternalTranscription(
  *
  * 優先順序：
  *   1. Firestore 快取（30 天 TTL）
- *   2. Groq Whisper 語音聽寫（groqApiKey 有值時啟用，音頻 AI 轉錄，時間軸最精準）
- *   3. YouTube 官方字幕 → 自動字幕（免 AI 成本，時間軸 100% 精準）
- *   4. LrcLib 同步歌詞（常見日文歌曲資料庫，速度快）
- *   5. 外部語音微服務 Cloud Run（需設定 SUBTITLE_SERVICE_URL）
+ *   2. YouTube 官方字幕 → 自動字幕（免 AI 成本，時間軸 100% 精準）
+ *   3. 外部語音微服務 Cloud Run（需設定 SUBTITLE_SERVICE_URL，yt-dlp + Groq）
+ *   4. Groq Whisper 語音聽寫（groqApiKey 有值時啟用，直接呼叫 Groq API 轉錄）
+ *   5. LrcLib 同步歌詞（常見日文歌曲資料庫，速度快）
  *   6. 回傳 null → 由 analyze-video 降級至 AI 完整生成
  *
  * @param videoId     - YouTube 11 位影片 ID
  * @param videoTitle  - 影片標題（用於 LrcLib 搜尋）
  * @param forceRefresh - 清除快取並重新抓取
  * @param googleToken - Google OAuth token（Cloud Run 繞過 IP 封鎖用）
- * @param groqApiKey  - Groq API Key（啟用 Whisper 語音聽寫，優先於 YouTube 字幕）
+ * @param groqApiKey  - Groq API Key（啟用 Whisper 語音聽寫）
  */
 export async function getSmartSubtitles(
   videoId: string,
@@ -168,7 +168,35 @@ export async function getSmartSubtitles(
     if (cached) return cached;
   }
 
-  // ── 2. Groq Whisper（有 groqApiKey 時優先，音頻轉錄最精準）────────────
+  // ── 2. YouTube 官方/自動字幕（時間軸 100% 精準，免 AI 成本）──────────
+  if (isYouTube) {
+    const captionResult = await fetchYouTubeCaptions(videoId).catch(() => null);
+    if (captionResult && captionResult.captions.length >= 3) {
+      const result: SmartSubtitleResult = {
+        videoId,
+        segments: captionResult.captions.map(c => ({ start: c.start, end: c.end, text: c.text })),
+        source: captionResult.isAuto ? 'youtube-auto' : 'youtube-official',
+      };
+      await writeCache(result);
+      return result;
+    }
+  }
+
+  // ── 3. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
+  {
+    const extSegments = await fetchExternalTranscription(videoId, googleToken);
+    if (extSegments) {
+      const result: SmartSubtitleResult = {
+        videoId,
+        segments: extSegments,
+        source: 'external',
+      };
+      await writeCache(result);
+      return result;
+    }
+  }
+
+  // ── 4. Groq Whisper（有 groqApiKey 時啟用，直接呼叫 Groq API 轉錄）───
   if (groqApiKey && isYouTube) {
     console.log(`[SubtitleManager] 嘗試 Groq Whisper...`);
     const whisperSegs = await transcribeYouTubeWithWhisper(videoId, groqApiKey).catch(() => null);
@@ -185,21 +213,7 @@ export async function getSmartSubtitles(
     console.log(`[SubtitleManager] Whisper 失敗，繼續下一管線`);
   }
 
-  // ── 3. YouTube 官方/自動字幕 ────────────────────────────────────────────
-  if (isYouTube) {
-    const captionResult = await fetchYouTubeCaptions(videoId).catch(() => null);
-    if (captionResult && captionResult.captions.length >= 3) {
-      const result: SmartSubtitleResult = {
-        videoId,
-        segments: captionResult.captions.map(c => ({ start: c.start, end: c.end, text: c.text })),
-        source: captionResult.isAuto ? 'youtube-auto' : 'youtube-official',
-      };
-      await writeCache(result);
-      return result;
-    }
-  }
-
-  // ── 4. LrcLib 同步歌詞 ──────────────────────────────────────────────────
+  // ── 5. LrcLib 同步歌詞 ──────────────────────────────────────────────────
   if (videoTitle) {
     const lrcResult = await searchLrcLib(videoTitle).catch(() => null);
     if (lrcResult && lrcResult.segments.length >= 3) {
@@ -209,20 +223,6 @@ export async function getSmartSubtitles(
         source: 'lrclib',
         lrcTrackName: lrcResult.track.trackName,
         lrcArtistName: lrcResult.track.artistName,
-      };
-      await writeCache(result);
-      return result;
-    }
-  }
-
-  // ── 5. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
-  {
-    const extSegments = await fetchExternalTranscription(videoId, googleToken);
-    if (extSegments) {
-      const result: SmartSubtitleResult = {
-        videoId,
-        segments: extSegments,
-        source: 'external',
       };
       await writeCache(result);
       return result;
