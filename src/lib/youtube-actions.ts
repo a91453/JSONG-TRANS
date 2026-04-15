@@ -93,16 +93,21 @@ async function fetchExternalTranscription(videoId: string): Promise<RawSegment[]
   const serviceUrl = process.env.SUBTITLE_SERVICE_URL;
   if (!serviceUrl) return null;
 
+  // 與 Cloud Run 服務共用的密鑰，防止公開濫用
+  const headers: Record<string, string> = {};
+  const secret = process.env.SUBTITLE_SERVICE_SECRET;
+  if (secret) headers['X-Service-Secret'] = secret;
+
   try {
     const res = await fetch(`${serviceUrl}/api/transcribe?v=${videoId}`, {
-      signal: AbortSignal.timeout(120_000), // 語音轉錄最多等 2 分鐘
+      headers,
+      signal: AbortSignal.timeout(180_000), // 3 分鐘：含 yt-dlp 下載 + Whisper 轉錄
     });
     if (!res.ok) {
       console.warn(`[SubtitleCache] 外部服務回傳 ${res.status}`);
       return null;
     }
     const data = await res.json();
-    // 期望 { segments: [{start, end, text}] }
     const segs: RawSegment[] = (data.segments ?? []).filter(
       (s: any) => typeof s.start === 'number' && typeof s.end === 'number' && s.text
     );
