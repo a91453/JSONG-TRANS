@@ -29,7 +29,8 @@ export function useGoogleAuth() {
     const token  = sessionStorage.getItem(TOKEN_KEY);
     const expiry = sessionStorage.getItem(EXPIRY_KEY);
     if (!token || !expiry) return null;
-    if (Date.now() > parseInt(expiry, 10)) {
+    const expiryMs = parseInt(expiry, 10);
+    if (isNaN(expiryMs) || Date.now() > expiryMs) {
       sessionStorage.removeItem(TOKEN_KEY);
       sessionStorage.removeItem(EXPIRY_KEY);
       return null;

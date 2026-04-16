@@ -79,8 +79,11 @@ ${cfg.translationRules}`;
       { role: 'system', content: cfg.systemMessage },
       { role: 'user',   content: prompt + '\n\n' + ANNOTATED_HINT },
     ]);
-    const json = JSON.parse(raw);
-    return z.object({ annotatedSegments: z.array(SegmentSchema) }).parse(json).annotatedSegments;
+    let json: unknown;
+    try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
+    const r = z.object({ annotatedSegments: z.array(SegmentSchema) }).safeParse(json);
+    if (!r.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
+    return r.data.annotatedSegments;
   }
 
   const ai = createAi(provider, apiKey);
@@ -117,8 +120,11 @@ ${cfg.annotationRules}
       { role: 'system', content: cfg.systemMessage },
       { role: 'user',   content: prompt + '\n\n' + SEGMENTS_HINT },
     ]);
-    const json = JSON.parse(raw);
-    return z.object({ segments: z.array(SegmentSchema) }).parse(json).segments;
+    let json: unknown;
+    try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
+    const r = z.object({ segments: z.array(SegmentSchema) }).safeParse(json);
+    if (!r.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
+    return r.data.segments;
   }
 
   const ai = createAi(provider, apiKey);

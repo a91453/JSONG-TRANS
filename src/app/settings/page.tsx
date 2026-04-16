@@ -96,6 +96,10 @@ export default function SettingsPage() {
   >({ state: 'idle' });
 
   const handleSrtFile = (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadStatus({ state: 'error', message: '檔案過大（上限 5MB），請確認是 SRT 格式' });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => setUploadSrt(String(reader.result ?? ''));
     reader.readAsText(file, 'utf-8');
