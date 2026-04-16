@@ -260,19 +260,41 @@ export async function POST(req: Request) {
           send('batch', { segments: withIds, batchIndex: 0, totalBatches: 1 });
           allAnnotated.push(...withIds);
         } else {
-          // 逐批標注：每批 15 段，批次完成即推送
-          const batches     = chunk(rawSegments, BATCH_SIZE);
+          // 並行標注：同時最多 5 批，完成即推送（避免 Vercel 60s timeout）
+          const batches      = chunk(rawSegments, BATCH_SIZE);
           const totalBatches = batches.length;
+          const CONCURRENCY  = 5;
 
-          for (let i = 0; i < batches.length; i++) {
-            send('stage', { text: `正在標注第 ${i + 1} / ${totalBatches} 批…` });
-            const annotated = await annotateBatch(
-              batches[i], titleForPrompt, sourceLabel, provider, apiKey, model
-            );
-            const withIds = annotated.map(s => ({ ...s, id: crypto.randomUUID() }));
-            send('batch', { segments: withIds, batchIndex: i, totalBatches });
-            allAnnotated.push(...withIds);
+          send('stage', { text: `並行標注 ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
+
+          let completed = 0;
+          let nextIdx   = 0;
+
+          async function worker() {
+            while (nextIdx < batches.length) {
+              const i = nextIdx++;
+              try {
+                const annotated = await annotateBatch(
+                  batches[i], titleForPrompt, sourceLabel, provider, apiKey, model
+                );
+                const withIds = annotated.map(s => ({ ...s, id: crypto.randomUUID() }));
+                send('batch', { segments: withIds, batchIndex: i, totalBatches });
+                allAnnotated.push(...withIds);
+                completed++;
+                send('stage', { text: `已完成 ${completed} / ${totalBatches} 批` });
+              } catch (err: any) {
+                // 單批失敗不中斷其他批次；回報錯誤但繼續
+                send('stage', { text: `第 ${i + 1} 批失敗：${err?.message || '未知錯誤'}` });
+              }
+            }
           }
+
+          await Promise.all(
+            Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker)
+          );
+
+          // 確保最終順序與時間軸一致（完成順序 ≠ 時間順序）
+          allAnnotated.sort((a, b) => a.start - b.start);
         }
 
         // ── 4. 完成 ───────────────────────────────────────────────────────

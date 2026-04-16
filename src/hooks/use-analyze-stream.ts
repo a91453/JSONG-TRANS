@@ -167,8 +167,10 @@ export function useAnalyzeStream() {
               } else if (evt === 'batch') {
                 const newSegs = payload.segments as Segment[];
                 allSegs.push(...newSegs);
-                // 累積所有已收到的段落（不重置，避免閃爍）
-                setStreamedSegments(prev => [...prev, ...newSegs]);
+                // 並行批次可能亂序抵達，依 start 排序後再更新（避免顯示錯亂）
+                setStreamedSegments(prev =>
+                  [...prev, ...newSegs].sort((a, b) => a.start - b.start)
+                );
 
               } else if (evt === 'done') {
                 finalSource   = payload.source;
@@ -191,10 +193,12 @@ export function useAnalyzeStream() {
       if (needGoogleAuthRef.current) return;
 
       // ── 建立最終回應並存入 localStorage ──────────────────────────────
+      // 並行完成的批次可能亂序，依 start 排序確保最終資料時間軸正確
+      const sortedSegs = [...allSegs].sort((a, b) => a.start - b.start);
       const finalResponse: AnalyzeResponse = {
         videoId,
-        duration: finalDuration,
-        segments: allSegs,
+        duration: finalDuration || sortedSegs[sortedSegs.length - 1]?.end || 0,
+        segments: sortedSegs,
         source:   finalSource as any,
       };
       setResponse(finalResponse);
