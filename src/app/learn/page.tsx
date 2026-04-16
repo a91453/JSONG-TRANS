@@ -175,7 +175,10 @@ function LearnContent() {
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10)
   }
 
-  const handleExplainAI = async (sentence: string) => {
+  const handleExplainAI = async (
+    sentence: string,
+    context?: { focusWord?: string; focusReading?: string; songTitle?: string }
+  ) => {
     const provider = settings.aiProvider;
     const apiKey = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey;
     const model = provider === 'google' ? settings.geminiModel : settings.groqModel;
@@ -188,11 +191,7 @@ function LearnContent() {
     setIsExplaining(true)
     setExplainData(null)
     try {
-      const data = await explainSentenceAction(sentence, {
-        provider,
-        apiKey,
-        model
-      })
+      const data = await explainSentenceAction(sentence, { provider, apiKey, model }, context)
       setExplainData(data)
     } catch (e: any) {
       console.error('Error in handleExplainAI:', e);
@@ -207,9 +206,17 @@ function LearnContent() {
     }
   }
 
-  const handleWordClick = (word: string, reading?: string) => {
+  // 點擊含漢字的詞 → 朗讀 + 觸覺 + AI 深度解說（傳入整句與歌曲上下文）
+  const handleWordClick = (word: string, reading?: string, seg?: Segment) => {
     speak(word);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
+    if (typeof navigator !== 'undefined') navigator.vibrate?.(10);
+    if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(word) && seg) {
+      handleExplainAI(seg.japanese, {
+        focusWord:    word,
+        focusReading: reading,
+        songTitle:    videoTitle || undefined,
+      });
+    }
   }
 
   const handleShare = () => {
@@ -403,7 +410,7 @@ function LearnContent() {
                     mode={annotationMode} 
                     fontSize={settings.lyricsFontSize} 
                     active={isActive}
-                    onWordClick={handleWordClick}
+                    onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
                   />
                   {settings.showTranslation && (
                     <p className={cn(
@@ -443,7 +450,7 @@ function LearnContent() {
         onSeek={handleSeek}
         onSetRate={(rate) => { player?.setPlaybackRate(rate); setPlaybackRate(rate); }}
         onTogglePin={() => setIsPinned(!isPinned)} 
-        onExplain={() => { const active = segments.find(s => s.id === activeSegmentId); if (active) handleExplainAI(active.japanese); }} 
+        onExplain={() => { const active = segments.find(s => s.id === activeSegmentId); if (active) handleExplainAI(active.japanese, { songTitle: videoTitle || undefined }); }}
         onShare={handleShare} 
         isLooping={!!loopingSegmentId}
         onToggleLoop={() => { if (activeSegmentId) toggleLoop(activeSegmentId); }}
@@ -457,7 +464,7 @@ function LearnContent() {
           {selectedSegment && (
             <div className="space-y-8 py-6">
               <div className="p-6 bg-muted/30 rounded-[2rem] border border-border">
-                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} mode={annotationMode} fontSize={22} active onWordClick={handleWordClick} />
+                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} mode={annotationMode} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">

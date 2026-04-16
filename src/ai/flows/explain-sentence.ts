@@ -33,7 +33,8 @@ const EXPLAIN_JSON_HINT = `
 
 export async function explainSentenceAction(
   sentence: string,
-  config?: { provider?: 'google' | 'groq'; apiKey?: string; model?: string }
+  config?: { provider?: 'google' | 'groq'; apiKey?: string; model?: string },
+  context?: { focusWord?: string; focusReading?: string; songTitle?: string }
 ): Promise<ExplainOutput> {
   const provider = config?.provider || 'google';
   const userApiKey = config?.apiKey;
@@ -44,12 +45,19 @@ export async function explainSentenceAction(
 
   const modelId = config?.model || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
 
-  const userPrompt = `你是一位資深的日語老師。請解析以下句子：
-「${sentence}」
+  const songLine   = context?.songTitle ? `以下是歌曲「${context.songTitle}」中的一句歌詞：` : '請解析以下句子：';
+  const focusLine  = context?.focusWord
+    ? `\n使用者點擊了「${context.focusWord}」（${context.focusReading ? `讀音：${context.focusReading}，` : ''}），請在整句脈絡中重點解析這個詞。\n`
+    : '';
+  const focusTip1  = context?.focusWord ? `，特別標注「${context.focusWord}」` : '';
+  const focusTip2  = context?.focusWord ? `，特別說明涉及「${context.focusWord}」的部分` : '';
 
+  const userPrompt = `你是一位資深的日語老師。${songLine}
+「${sentence}」
+${focusLine}
 任務：
-1. 拆解句子中的單字與助詞。
-2. 說明關鍵文法點。
+1. 拆解句子中的單字與助詞${focusTip1}。
+2. 說明關鍵文法點${focusTip2}。
 3. 如果有特定的口語用法或文化背景，請補充。
 
 請以繁體中文回傳結構化資料。`;
