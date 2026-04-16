@@ -51,10 +51,15 @@ import {
   GitBranch,
   CheckCircle2,
   Circle,
-  Mic
+  Mic,
+  Upload,
+  FileText,
+  Loader2,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 // API Rate Limit Data（免費 tier）
 const GEMINI_LIMITS: Record<string, { rpm: string, tpm: string, rpd: string }> = {
@@ -79,6 +84,43 @@ export default function SettingsPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showGroqKey, setShowGroqKey] = useState(false);
+
+  // ── 手動上傳字幕狀態 ─────────────────────────────────────────────────────
+  const [uploadUrl, setUploadUrl] = useState('');
+  const [uploadSrt, setUploadSrt] = useState('');
+  const [uploadStatus, setUploadStatus] = useState<
+    { state: 'idle' } |
+    { state: 'loading' } |
+    { state: 'success'; videoId: string; count: number } |
+    { state: 'error'; message: string }
+  >({ state: 'idle' });
+
+  const handleSrtFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => setUploadSrt(String(reader.result ?? ''));
+    reader.readAsText(file, 'utf-8');
+  };
+
+  const handleUpload = async () => {
+    setUploadStatus({ state: 'loading' });
+    try {
+      const res = await fetch('/api/upload-subtitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: uploadUrl, srtContent: uploadSrt }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setUploadStatus({ state: 'success', videoId: data.videoId, count: data.segmentCount });
+        setUploadUrl('');
+        setUploadSrt('');
+      } else {
+        setUploadStatus({ state: 'error', message: data.error ?? '上傳失敗' });
+      }
+    } catch (e: any) {
+      setUploadStatus({ state: 'error', message: e?.message ?? '網路錯誤' });
+    }
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -347,6 +389,97 @@ export default function SettingsPage() {
               <p className="text-[9px] text-muted-foreground leading-relaxed">
                 分析完成後可由歌詞頁頂部的來源標籤（如「人工字幕」「Whisper 聽寫」）確認實際走了哪條路線。
               </p>
+            </CardContent>
+          </Card>
+
+          {/* 手動上傳字幕到 Firestore */}
+          <Card className="rounded-2xl border bg-muted/10">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Upload size={16} className="text-primary" />
+                <h3 className="text-xs font-bold uppercase tracking-widest">手動上傳字幕到 Firestore</h3>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                若自動管線都抓不到字幕，可在此手動提供 YouTube 網址 + SRT 檔案，直接寫入快取（30 天）。
+                下次分析同一支影片時會立即命中，跳過所有抓取步驟。
+              </p>
+
+              {/* YouTube URL 輸入 */}
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-muted-foreground">YouTube 網址</Label>
+                <Input
+                  type="url"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={uploadUrl}
+                  onChange={(e) => setUploadUrl(e.target.value)}
+                  className="rounded-xl bg-background border text-xs h-10 font-mono"
+                />
+              </div>
+
+              {/* SRT 檔案上傳 + 貼上 */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-bold text-muted-foreground">SRT 字幕內容</Label>
+                  <label className="text-[10px] font-bold text-primary flex items-center gap-1 cursor-pointer hover:underline">
+                    <FileText size={11} />
+                    選擇檔案
+                    <input
+                      type="file"
+                      accept=".srt,text/plain"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleSrtFile(f);
+                      }}
+                    />
+                  </label>
+                </div>
+                <Textarea
+                  placeholder={"1\n00:00:12,000 --> 00:00:15,500\n歌詞第一行\n\n2\n00:00:15,800 --> 00:00:18,200\n歌詞第二行"}
+                  value={uploadSrt}
+                  onChange={(e) => setUploadSrt(e.target.value)}
+                  className="rounded-xl bg-background border text-[10px] font-mono min-h-[140px] resize-y"
+                />
+              </div>
+
+              {/* 狀態提示 */}
+              {uploadStatus.state === 'success' && (
+                <div className="p-3 rounded-xl bg-green-500/10 border border-green-200 text-[10px] text-green-700 flex items-start gap-2">
+                  <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">上傳成功</p>
+                    <p className="text-green-600 mt-0.5">
+                      videoId: <span className="font-mono">{uploadStatus.videoId}</span> — 共 {uploadStatus.count} 段
+                    </p>
+                  </div>
+                </div>
+              )}
+              {uploadStatus.state === 'error' && (
+                <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-[10px] text-destructive flex items-start gap-2">
+                  <XCircle size={14} className="shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">上傳失敗</p>
+                    <p className="opacity-80 mt-0.5">{uploadStatus.message}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* 送出按鈕 */}
+              <Button
+                onClick={handleUpload}
+                disabled={!uploadUrl.trim() || !uploadSrt.trim() || uploadStatus.state === 'loading'}
+                className="w-full rounded-xl font-bold gap-2"
+              >
+                {uploadStatus.state === 'loading' ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> 上傳中…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={14} /> 寫入 Firestore
+                  </>
+                )}
+              </Button>
             </CardContent>
           </Card>
 

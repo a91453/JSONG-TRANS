@@ -232,12 +232,14 @@ export async function POST(req: Request) {
             'youtube-auto':     'server-sub-auto',
             'lrclib':           'lrclib',
             'external':         'server-sub',
+            'manual':           'server-sub',
           };
           expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
           rawSegments    = subtitleResult.segments;
           sourceLabel    = subtitleResult.source === 'whisper-groq'    ? 'Whisper 語音聽寫'
                          : subtitleResult.source === 'lrclib'          ? 'LrcLib 同步'
                          : subtitleResult.source === 'external'        ? '外部語音服務'
+                         : subtitleResult.source === 'manual'          ? '手動上傳'
                          : subtitleResult.source === 'youtube-auto'    ? '自動生成' : '官方';
           if (subtitleResult.lrcArtistName && subtitleResult.lrcTrackName) {
             titleForPrompt = `${subtitleResult.lrcArtistName} - ${subtitleResult.lrcTrackName}`;

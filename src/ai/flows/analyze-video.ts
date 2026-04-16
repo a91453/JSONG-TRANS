@@ -193,12 +193,14 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
         'youtube-auto':      'server-sub-auto',
         'lrclib':            'lrclib',
         'external':          'server-sub',
+        'manual':            'server-sub',
       };
       expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
 
       const sourceLabel = subtitleResult.source === 'whisper-groq'    ? 'Whisper 語音聽寫'
                         : subtitleResult.source === 'lrclib'           ? 'LrcLib 同步'
                         : subtitleResult.source === 'external'         ? '外部語音服務'
+                        : subtitleResult.source === 'manual'           ? '手動上傳'
                         : subtitleResult.source === 'youtube-auto'     ? '自動生成' : '官方';
 
       const titleForPrompt = subtitleResult.lrcArtistName && subtitleResult.lrcTrackName

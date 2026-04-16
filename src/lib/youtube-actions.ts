@@ -28,7 +28,7 @@ export interface SmartSubtitleResult {
   videoId: string;
   segments: RawSegment[];
   /** 資料來源 */
-  source: 'youtube-official' | 'youtube-auto' | 'lrclib' | 'external' | 'whisper-groq';
+  source: 'youtube-official' | 'youtube-auto' | 'lrclib' | 'external' | 'whisper-groq' | 'manual';
   /** LrcLib 曲目資訊（source === 'lrclib' 時提供，用於建立更精確的標注 prompt） */
   lrcTrackName?: string;
   lrcArtistName?: string;
