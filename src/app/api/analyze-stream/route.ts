@@ -54,8 +54,11 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: string, data: unknown) =>
-        controller.enqueue(sseChunk(event, data));
+      let closed = false;
+      const closeOnce = () => { if (!closed) { closed = true; controller.close(); } };
+      const send = (event: string, data: unknown) => {
+        if (!closed) controller.enqueue(sseChunk(event, data));
+      };
 
       try {
         const isYouTube = typeof videoId === 'string' && videoId.length === 11;
@@ -85,7 +88,7 @@ export async function POST(req: Request) {
           } catch (e: any) {
             if (e.message === 'YOUTUBE_AUTH_REQUIRED' && !googleToken) {
               send('need_google_auth', {});
-              controller.close();
+              closeOnce();
               return;
             }
           }
@@ -166,7 +169,7 @@ export async function POST(req: Request) {
       } catch (e: any) {
         send('error', { message: e.message || '分析失敗，請稍後再試。' });
       } finally {
-        controller.close();
+        closeOnce();
       }
     },
   });

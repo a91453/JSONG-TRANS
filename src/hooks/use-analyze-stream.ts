@@ -132,62 +132,73 @@ export function useAnalyzeStream() {
       const allSegs: Segment[] = [];
       let finalSource   = 'genkit-ai';
       let finalDuration = 0;
+      // server-sent error message — thrown after the loop so it escapes inner catch
+      let serverError: string | null = null;
 
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
 
-        let evt  = '';
-        let data = '';
+          let evt  = '';
+          let data = '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            evt  = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            data = line.slice(6).trim();
-          } else if (line === '' && evt && data) {
-            // ── 解析事件 ────────────────────────────────────────────────
-            try {
-              const payload = JSON.parse(data);
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              evt  = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              data = line.slice(6).trim();
+            } else if (line === '' && evt && data) {
+              try {
+                const payload = JSON.parse(data);
 
-              if (evt === 'stage') {
-                setLoadingStage(payload.text);
+                if (evt === 'stage') {
+                  setLoadingStage(payload.text);
 
-              } else if (evt === 'need_google_auth') {
-                needGoogleAuthRef.current = true;
-                setNeedGoogleAuth(true);
-                setIsLoading(false);
-                isLoadingRef.current = false;
-                break outer;
+                } else if (evt === 'need_google_auth') {
+                  needGoogleAuthRef.current = true;
+                  setNeedGoogleAuth(true);
+                  setIsLoading(false);
+                  isLoadingRef.current = false;
+                  break outer;
 
-              } else if (evt === 'batch') {
-                const newSegs = payload.segments as Segment[];
-                allSegs.push(...newSegs);
-                // 並行批次可能亂序抵達，依 start 排序後再更新（避免顯示錯亂）
-                setStreamedSegments(prev =>
-                  [...prev, ...newSegs].sort((a, b) => a.start - b.start)
-                );
+                } else if (evt === 'batch') {
+                  const newSegs = payload.segments as Segment[];
+                  allSegs.push(...newSegs);
+                  // 並行批次可能亂序抵達，依 start 排序後再更新（避免顯示錯亂）
+                  setStreamedSegments(prev =>
+                    [...prev, ...newSegs].sort((a, b) => a.start - b.start)
+                  );
 
-              } else if (evt === 'done') {
-                finalSource   = payload.source;
-                finalDuration = payload.duration ?? 0;
+                } else if (evt === 'done') {
+                  finalSource   = payload.source;
+                  finalDuration = payload.duration ?? 0;
 
-              } else if (evt === 'error') {
-                throw new Error(payload.message);
+                } else if (evt === 'error') {
+                  // 儲存伺服器錯誤，迴圈結束後再拋出（避免被 inner catch 吞掉）
+                  serverError = payload.message;
+                  break outer;
+                }
+              } catch {
+                // JSON 解析失敗：忽略並繼續
               }
-            } catch {
-              // JSON 解析失敗：忽略並繼續
-            }
 
-            evt  = '';
-            data = '';
+              evt  = '';
+              data = '';
+            }
           }
         }
+      } finally {
+        // 無論成功/失敗都釋放 reader，避免連線殘留
+        reader.cancel().catch(() => {});
       }
+
+      // 伺服器回傳錯誤事件 → 在 inner catch 外拋出，正確顯示給使用者
+      if (serverError) throw new Error(serverError);
 
       // need_google_auth 時提前跳出，不儲存空結果（用 ref 避免 stale closure）
       if (needGoogleAuthRef.current) return;
