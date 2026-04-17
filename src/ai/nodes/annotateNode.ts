@@ -83,7 +83,11 @@ ${cfg.translationRules}`;
     try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
     const r = z.object({ annotatedSegments: z.array(SegmentSchema) }).safeParse(json);
     if (!r.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
-    return r.data.annotatedSegments;
+    return r.data.annotatedSegments.map((seg, i) => ({
+      ...seg,
+      start: batch[i]?.start ?? seg.start,
+      end:   batch[i]?.end   ?? seg.end,
+    }));
   }
 
   const ai = createAi(provider, apiKey);
@@ -93,7 +97,11 @@ ${cfg.translationRules}`;
     prompt,
   });
   if (!output?.annotatedSegments) throw new Error('AI 標注失敗');
-  return output.annotatedSegments;
+  return output.annotatedSegments.map((seg, i) => ({
+    ...seg,
+    start: batch[i]?.start ?? seg.start,
+    end:   batch[i]?.end   ?? seg.end,
+  }));
 }
 
 // ── 完整 AI 生成（無任何字幕來源時使用）──────────────────────────────────
