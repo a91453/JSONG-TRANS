@@ -135,6 +135,11 @@ export function useAnalyzeStream() {
       // server-sent error message — thrown after the loop so it escapes inner catch
       let serverError: string | null = null;
 
+      // evt/data must persist across read() boundaries in case an SSE event
+      // is split between two chunks (event: line in one, data: in the next)
+      let evt  = '';
+      let data = '';
+
       try {
         outer: while (true) {
           const { done, value } = await reader.read();
@@ -143,9 +148,6 @@ export function useAnalyzeStream() {
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
-
-          let evt  = '';
-          let data = '';
 
           for (const line of lines) {
             if (line.startsWith('event: ')) {

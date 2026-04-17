@@ -134,8 +134,9 @@ export async function POST(req: Request) {
           const totalBatches = batches.length;
           send('stage', { text: `並行標注 ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
 
-          let completed = 0;
-          let nextIdx   = 0;
+          let completed  = 0;
+          let failed     = 0;
+          let nextIdx    = 0;
 
           async function worker() {
             while (nextIdx < batches.length) {
@@ -149,12 +150,18 @@ export async function POST(req: Request) {
                 allAnnotated.push(...withIds);
                 send('stage', { text: `已完成 ${++completed} / ${totalBatches} 批` });
               } catch (err: any) {
+                failed++;
                 send('stage', { text: `第 ${i + 1} 批失敗：${err?.message || '未知錯誤'}` });
               }
             }
           }
 
           await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
+
+          if (allAnnotated.length === 0) {
+            throw new Error('所有批次標注均失敗，請檢查 API Key 或稍後再試。');
+          }
+
           allAnnotated.sort((a, b) => a.start - b.start);
         }
 
