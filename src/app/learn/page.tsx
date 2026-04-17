@@ -275,188 +275,204 @@ function LearnContent() {
     )
   }
 
+  const playerControls = (
+    <VideoPlayerControls
+      currentTime={currentTime}
+      duration={duration}
+      isPlaying={isPlaying}
+      playbackRate={playbackRate}
+      isPinned={isPinned}
+      onTogglePlay={() => { if (player) { if (isPlaying) player.pauseVideo(); else player.playVideo(); } }}
+      onSeek={handleSeek}
+      onSetRate={(rate) => { player?.setPlaybackRate(rate); setPlaybackRate(rate); }}
+      onTogglePin={() => setIsPinned(!isPinned)}
+      onExplain={() => { const active = segments.find(s => s.id === activeSegmentId); if (active) handleExplainAI(active.japanese, { songTitle: videoTitle || undefined }); }}
+      onShare={handleShare}
+      isLooping={!!loopingSegmentId}
+      onToggleLoop={() => { if (activeSegmentId) toggleLoop(activeSegmentId); }}
+      isShadowing={isShadowing}
+      onToggleShadowing={() => { setIsShadowing(!isShadowing); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15); }}
+    />
+  )
+
   return (
     <div className="flex flex-col h-[calc(100vh-80px)] bg-background text-foreground overflow-hidden">
-      <div className="w-full bg-black aspect-video max-h-[25vh] sm:max-h-none relative z-10">
-        {v && v.length === 11 ? (
-          <YouTube
-            videoId={v}
-            className="w-full h-full"
-            iframeClassName="w-full h-full"
-            onReady={onReady}
-            onStateChange={onStateChange}
-            opts={{ playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, enablejsapi: 1, playsinline: 1 } }}
-          />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-muted/20 text-muted-foreground gap-4">
-            <PlayCircle size={64} className="opacity-20" />
-            <p className="text-sm font-bold uppercase tracking-widest opacity-40">自定義匯入課程</p>
-          </div>
-        )}
-      </div>
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
 
-      <div className="px-4 py-2 flex items-center justify-between border-b bg-muted/20">
-        <div className="min-w-0 flex-1 mr-4">
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xs font-black truncate text-foreground/80 tracking-wider uppercase">{videoTitle}</h1>
-            {response?.source && <SourceBadge source={response.source} />}
-          </div>
-          <p className="text-[10px] text-primary font-bold truncate">{artistName || "YouTube"}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => { const seg = segments.find(s => s.id === activeSegmentId); if (seg) handleExplainAI(seg.japanese); }} className="p-2 hover:bg-primary/10 rounded-full transition-colors text-primary"><Lightbulb size={20} /></button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="p-2 hover:bg-muted rounded-full transition-colors"><MoreVertical size={18} /></button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="rounded-2xl">
-              <DropdownMenuItem onClick={handleShare}><Share2 className="mr-2 h-4 w-4" /> 分享逐字稿</DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDownloadSRT}><Download className="mr-2 h-4 w-4" /> 下載 SRT 字幕</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => analyze(v, true)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      {/* 串流進行中：顯示已載入段落數 + 進度指示條 */}
-      {isLoading && segments.length > 0 && (
-        <div className="px-4 py-1.5 bg-primary/5 border-b border-primary/10 flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
-          <p className="text-[10px] text-primary font-black uppercase tracking-widest animate-pulse">{loadingStage}</p>
-          <span className="ml-auto text-[9px] text-primary/60 font-bold tabular-nums">{segments.length} 段</span>
-        </div>
-      )}
-
-      {/* LrcLib 時間軸偏移提示（MV 可能有前奏，時間軸與純音檔不同） */}
-      {response?.source === 'lrclib' && (
-        <div className="px-4 py-2 bg-teal-50/80 dark:bg-teal-900/20 border-b border-teal-100/60 flex items-center gap-2">
-          <Info size={12} className="text-teal-600 shrink-0" />
-          <p className="text-[10px] text-teal-700 dark:text-teal-300 font-medium leading-tight">
-            LrcLib 時間軸依純音檔計算，YouTube MV 若有前奏請用下方 ＋/－ 調整偏移
-          </p>
-        </div>
-      )}
-
-      {/* 合併工具列：標注模式 + 字幕偏移（單行可橫向捲動） */}
-      <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
-        {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (
-          <Button
-            key={mode}
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
-              annotationMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-            )}
-            onClick={() => { setAnnotationMode(mode); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
-          >
-            {mode === 'furigana' && "假名"}
-            {mode === 'romaji' && "拼音"}
-            {mode === 'both' && "完整"}
-            {mode === 'none' && "隱藏"}
-          </Button>
-        ))}
-        <div className="w-px h-4 bg-border shrink-0 mx-1" />
-        <button
-          onClick={() => setCaptionOffset(prev => +(prev - 0.5).toFixed(1))}
-          className="h-7 px-2.5 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground shrink-0 transition-colors"
-        >
-          −
-        </button>
-        <span className={cn(
-          "text-[10px] font-black tabular-nums min-w-[36px] text-center shrink-0",
-          captionOffset !== 0 ? "text-primary" : "text-muted-foreground"
-        )}>
-          {captionOffset >= 0 ? `+${captionOffset.toFixed(1)}` : captionOffset.toFixed(1)}s
-        </span>
-        <button
-          onClick={() => setCaptionOffset(prev => +(prev + 0.5).toFixed(1))}
-          className="h-7 px-2.5 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground shrink-0 transition-colors"
-        >
-          +
-        </button>
-        {captionOffset !== 0 && (
-          <button
-            onClick={() => setCaptionOffset(0)}
-            className="h-7 px-2 rounded-full text-[9px] font-black text-muted-foreground hover:text-foreground shrink-0 transition-colors"
-          >
-            重置
-          </button>
-        )}
-      </div>
-
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 sm:px-4 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">
-        <div className="py-8 sm:py-24 space-y-6 sm:space-y-12 pb-16 sm:pb-32">
-          {segments.map((seg, idx) => {
-            const isActive = activeSegmentId === seg.id
-            const isFav = isFavorited(v, seg.start)
-            const isLooping = loopingSegmentId === seg.id
-            return (
-              <div 
-                key={`${seg.id}-${idx}`} 
-                id={`segment-${seg.id}`} 
-                onClick={() => handleSeekToSegment(seg)} 
-                className={cn(
-                  "p-5 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] transition-all duration-700 cursor-pointer relative group border-2 bg-card",
-                  isActive
-                    ? "border-primary/20 scale-100 shadow-[0_10px_40px_rgba(0,0,0,0.05)]"
-                    : "border-transparent scale-[0.97] sm:scale-95 opacity-40 hover:opacity-100"
-                )}
-              >
-                <div className="flex flex-col gap-6">
-                  <FuriganaText 
-                    text={seg.japanese} 
-                    furiganaItems={seg.furigana} 
-                    mode={annotationMode} 
-                    fontSize={settings.lyricsFontSize} 
-                    active={isActive}
-                    onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
-                  />
-                  {settings.showTranslation && (
-                    <p className={cn(
-                      "text-sm transition-all duration-500 tracking-wide",
-                      isActive ? "text-foreground font-bold" : "text-muted-foreground font-medium"
-                    )}>
-                      {seg.translation}
-                    </p>
-                  )}
-                </div>
-
-                <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 opacity-0 group-hover:opacity-100 transition-all">
-                  <button onClick={(e) => { e.stopPropagation(); addFavorite(seg, v, videoTitle, artistName); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); }} className={cn("w-10 h-10 rounded-full flex items-center justify-center bg-background/80 shadow-sm border", isFav ? "text-yellow-500" : "text-muted-foreground hover:text-primary")}>
-                    <Star size={20} fill={isFav ? "currentColor" : "none"} />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); toggleLoop(seg.id); }} className={cn("w-10 h-10 rounded-full flex items-center justify-center bg-background/80 shadow-sm border", isLooping ? "text-primary" : "text-muted-foreground hover:text-primary")}>
-                    <Repeat size={20} />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setSelectedSegment(seg); }} className="w-10 h-10 rounded-full flex items-center justify-center bg-background/80 shadow-sm border text-muted-foreground hover:text-primary">
-                    <Info size={20} />
-                  </button>
-                </div>
-                {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-16 bg-primary rounded-r-full shadow-lg animate-pulse" />}
+        {/* ── Left panel (mobile: top section) ──────────────────────── */}
+        <div className="md:w-[380px] lg:w-[420px] shrink-0 flex flex-col md:border-r overflow-hidden">
+          <div className="w-full bg-black aspect-video max-h-[28vh] md:max-h-none relative z-10">
+            {v && v.length === 11 ? (
+              <YouTube
+                videoId={v}
+                className="w-full h-full"
+                iframeClassName="w-full h-full"
+                onReady={onReady}
+                onStateChange={onStateChange}
+                opts={{ playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, enablejsapi: 1, playsinline: 1 } }}
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-muted/20 text-muted-foreground gap-4">
+                <PlayCircle size={64} className="opacity-20" />
+                <p className="text-sm font-bold uppercase tracking-widest opacity-40">自定義匯入課程</p>
               </div>
-            )
-          })}
+            )}
+          </div>
+
+          <div className="px-4 py-2 flex items-center justify-between border-b bg-muted/20">
+            <div className="min-w-0 flex-1 mr-4">
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-xs font-black truncate text-foreground/80 tracking-wider uppercase">{videoTitle}</h1>
+                {response?.source && <SourceBadge source={response.source} />}
+              </div>
+              <p className="text-[10px] text-primary font-bold truncate">{artistName || "YouTube"}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { const seg = segments.find(s => s.id === activeSegmentId); if (seg) handleExplainAI(seg.japanese); }} className="p-2 hover:bg-primary/10 rounded-full transition-colors text-primary"><Lightbulb size={20} /></button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="p-2 hover:bg-muted rounded-full transition-colors"><MoreVertical size={18} /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="rounded-2xl">
+                  <DropdownMenuItem onClick={handleShare}><Share2 className="mr-2 h-4 w-4" /> 分享逐字稿</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDownloadSRT}><Download className="mr-2 h-4 w-4" /> 下載 SRT 字幕</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => analyze(v, true)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+
+          {isLoading && segments.length > 0 && (
+            <div className="px-4 py-1.5 bg-primary/5 border-b border-primary/10 flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
+              <p className="text-[10px] text-primary font-black uppercase tracking-widest animate-pulse">{loadingStage}</p>
+              <span className="ml-auto text-[9px] text-primary/60 font-bold tabular-nums">{segments.length} 段</span>
+            </div>
+          )}
+
+          {response?.source === 'lrclib' && (
+            <div className="px-4 py-2 bg-teal-50/80 dark:bg-teal-900/20 border-b border-teal-100/60 flex items-center gap-2">
+              <Info size={12} className="text-teal-600 shrink-0" />
+              <p className="text-[10px] text-teal-700 dark:text-teal-300 font-medium leading-tight">
+                LrcLib 時間軸依純音檔計算，YouTube MV 若有前奏請用下方 ＋/－ 調整偏移
+              </p>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
+            {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
+                  annotationMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                )}
+                onClick={() => { setAnnotationMode(mode); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
+              >
+                {mode === 'furigana' && "假名"}
+                {mode === 'romaji' && "拼音"}
+                {mode === 'both' && "完整"}
+                {mode === 'none' && "隱藏"}
+              </Button>
+            ))}
+            <div className="w-px h-4 bg-border shrink-0 mx-1" />
+            <button
+              onClick={() => setCaptionOffset(prev => +(prev - 0.5).toFixed(1))}
+              className="h-7 px-2.5 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground shrink-0 transition-colors"
+            >
+              −
+            </button>
+            <span className={cn(
+              "text-[10px] font-black tabular-nums min-w-[36px] text-center shrink-0",
+              captionOffset !== 0 ? "text-primary" : "text-muted-foreground"
+            )}>
+              {captionOffset >= 0 ? `+${captionOffset.toFixed(1)}` : captionOffset.toFixed(1)}s
+            </span>
+            <button
+              onClick={() => setCaptionOffset(prev => +(prev + 0.5).toFixed(1))}
+              className="h-7 px-2.5 rounded-full text-[10px] font-black bg-muted/40 hover:bg-muted text-muted-foreground shrink-0 transition-colors"
+            >
+              +
+            </button>
+            {captionOffset !== 0 && (
+              <button
+                onClick={() => setCaptionOffset(0)}
+                className="h-7 px-2 rounded-full text-[9px] font-black text-muted-foreground hover:text-foreground shrink-0 transition-colors"
+              >
+                重置
+              </button>
+            )}
+          </div>
+
+          {/* Desktop: player controls pinned to bottom of left panel */}
+          <div className="hidden md:block mt-auto border-t">
+            {playerControls}
+          </div>
+        </div>
+
+        {/* ── Right panel: lyrics scroll area ────────────────────────── */}
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 md:px-6 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">
+          <div className="py-8 space-y-4 md:space-y-6 pb-16">
+            {segments.map((seg, idx) => {
+              const isActive = activeSegmentId === seg.id
+              const isFav = isFavorited(v, seg.start)
+              const isLooping = loopingSegmentId === seg.id
+              return (
+                <div
+                  key={`${seg.id}-${idx}`}
+                  id={`segment-${seg.id}`}
+                  onClick={() => handleSeekToSegment(seg)}
+                  className={cn(
+                    "p-5 rounded-[2rem] transition-all duration-700 cursor-pointer relative group border-2 bg-card",
+                    isActive
+                      ? "border-primary/20 scale-100 shadow-[0_10px_40px_rgba(0,0,0,0.05)]"
+                      : "border-transparent scale-[0.98] opacity-50 hover:opacity-90"
+                  )}
+                >
+                  <div className="flex flex-col gap-4">
+                    <FuriganaText
+                      text={seg.japanese}
+                      furiganaItems={seg.furigana}
+                      mode={annotationMode}
+                      fontSize={settings.lyricsFontSize}
+                      active={isActive}
+                      onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
+                    />
+                    {settings.showTranslation && (
+                      <p className={cn(
+                        "text-sm transition-all duration-500 tracking-wide",
+                        isActive ? "text-foreground font-bold" : "text-muted-foreground font-medium"
+                      )}>
+                        {seg.translation}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={(e) => { e.stopPropagation(); addFavorite(seg, v, videoTitle, artistName); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); }} className={cn("w-9 h-9 rounded-full flex items-center justify-center bg-background/80 shadow-sm border", isFav ? "text-yellow-500" : "text-muted-foreground hover:text-primary")}>
+                      <Star size={18} fill={isFav ? "currentColor" : "none"} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); toggleLoop(seg.id); }} className={cn("w-9 h-9 rounded-full flex items-center justify-center bg-background/80 shadow-sm border", isLooping ? "text-primary" : "text-muted-foreground hover:text-primary")}>
+                      <Repeat size={18} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); setSelectedSegment(seg); }} className="w-9 h-9 rounded-full flex items-center justify-center bg-background/80 shadow-sm border text-muted-foreground hover:text-primary">
+                      <Info size={18} />
+                    </button>
+                  </div>
+                  {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-12 bg-primary rounded-r-full shadow-lg animate-pulse" />}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
-      <VideoPlayerControls 
-        currentTime={currentTime} 
-        duration={duration} 
-        isPlaying={isPlaying} 
-        playbackRate={playbackRate} 
-        isPinned={isPinned} 
-        onTogglePlay={() => { if (player) { if (isPlaying) player.pauseVideo(); else player.playVideo(); } }}
-        onSeek={handleSeek}
-        onSetRate={(rate) => { player?.setPlaybackRate(rate); setPlaybackRate(rate); }}
-        onTogglePin={() => setIsPinned(!isPinned)} 
-        onExplain={() => { const active = segments.find(s => s.id === activeSegmentId); if (active) handleExplainAI(active.japanese, { songTitle: videoTitle || undefined }); }}
-        onShare={handleShare} 
-        isLooping={!!loopingSegmentId}
-        onToggleLoop={() => { if (activeSegmentId) toggleLoop(activeSegmentId); }}
-        isShadowing={isShadowing}
-        onToggleShadowing={() => { setIsShadowing(!isShadowing); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15); }}
-      />
+      {/* Mobile: player controls at page bottom */}
+      <div className="md:hidden">
+        {playerControls}
+      </div>
 
       <Dialog open={!!selectedSegment} onOpenChange={(open) => !open && setSelectedSegment(null)}>
         <DialogContent className="rounded-[3rem] max-w-sm bg-background shadow-2xl">
