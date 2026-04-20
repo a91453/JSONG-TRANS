@@ -49,13 +49,24 @@ function isRateLimitError(err: any): boolean {
   );
 }
 
+/** 從 Google 錯誤訊息中解析建議等待時間（例：「Please retry in 19.1s」→ 20000ms）。 */
+function parseRetryAfterMs(err: any): number {
+  const msg: string = err?.message || err?.originalMessage || '';
+  const m = msg.match(/retry in ([\d.]+)s/i);
+  if (m) {
+    const sec = parseFloat(m[1]);
+    if (!isNaN(sec)) return Math.ceil(sec) * 1000 + 2000; // 加 2s 緩衝
+  }
+  return 20_000; // 預設 20s
+}
+
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
       if (isRateLimitError(err) && attempt < maxRetries) {
-        const waitMs = (attempt + 1) * 5000; // 5s, 10s, 15s
+        const waitMs = attempt === 0 ? parseRetryAfterMs(err) : (attempt + 1) * 10_000;
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }

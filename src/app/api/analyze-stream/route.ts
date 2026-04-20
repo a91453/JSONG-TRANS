@@ -19,7 +19,8 @@ import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { annotateBatch, translateBatch, generateFull, type RawSeg } from '@/ai/nodes/annotateNode';
 
 const BATCH_SIZE  = 15;
-const CONCURRENCY = 5;
+// 免費版 Gemini 每分鐘限 5 次；2 個 worker 加上 withRetry 等待可穩定消化
+const CONCURRENCY = 2;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];

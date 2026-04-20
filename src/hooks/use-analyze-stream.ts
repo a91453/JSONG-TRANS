@@ -238,10 +238,12 @@ export function useAnalyzeStream() {
 
     } catch (error: any) {
       const msg = error.message || '';
-      if (msg.includes('流量過高') || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+      if (msg.includes('location is not supported') || msg.includes('USER_LOCATION') || msg.includes('INVALID_ARGUMENT')) {
+        setErrorMessage('您的 Gemini API Key 所在地區不支援免費版，請至 Google AI Studio 啟用計費後再試，或改用 Groq API Key。');
+      } else if (msg.includes('流量過高') || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
         setErrorMessage('AI 服務暫時繁忙，請稍候幾秒後點「重試一次」。');
       } else if (msg.includes('429') || msg.includes('Quota') || msg.includes('limit') || msg.includes('RESOURCE_EXHAUSTED')) {
-        setErrorMessage('API 配額已滿，請稍候 30 秒再試。建議檢查 API Key 狀態。');
+        setErrorMessage('Gemini 免費版每分鐘限 5 次請求，請稍候 30 秒再試。若需更快的速度，請啟用 Google AI Studio 計費或改用 Groq。');
       } else {
         setErrorMessage(msg || '分析失敗，請檢查網路或 API 設定後再試。');
       }
