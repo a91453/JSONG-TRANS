@@ -27,7 +27,13 @@ export const SegmentSchema = z.object({
 });
 
 export type Segment    = z.infer<typeof SegmentSchema>;
-export type RawSeg     = { start: number; end: number; text: string };
+export type RawSeg     = {
+  start: number;
+  end:   number;
+  text:  string;
+  /** 預標注振假名（如 Cloud Run 已提供）；存在時可走 translateBatch 僅翻譯路徑 */
+  furigana?: z.infer<typeof FuriganaItemSchema>[];
+};
 
 // ── 工具 ──────────────────────────────────────────────────────────────────
 
@@ -102,6 +108,80 @@ ${cfg.translationRules}`;
     start: batch[i]?.start ?? seg.start,
     end:   batch[i]?.end   ?? seg.end,
   }));
+}
+
+// ── 僅翻譯批次（已有預標注振假名時使用，省去一次標注 AI 呼叫）────────────
+
+const TRANSLATIONS_HINT = `
+你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
+{"translations":[{"index":0,"translation":"繁體中文翻譯"}]}
+其中 index 必須對應輸入的 [索引] 編號（從 0 開始）。
+`;
+
+const TranslationsSchema = z.object({
+  translations: z.array(z.object({
+    index:       z.number(),
+    translation: z.string(),
+  })),
+});
+
+/**
+ * 當字幕來源已提供振假名（例如 Cloud Run 轉錄服務）時使用。
+ * 僅向 AI 請求繁體中文翻譯，保留預先標注的 furigana，明顯加速並省 API 配額。
+ */
+export async function translateBatch(
+  batch:       RawSeg[],
+  videoTitle:  string,
+  sourceLabel: string,
+  provider:    'google' | 'groq',
+  apiKey:      string,
+  model:       string
+): Promise<Segment[]> {
+  const cfg   = await getPromptConfig();
+  const lines = batch
+    .map((c, i) => `[${i}] [${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
+    .join('\n');
+
+  const prompt = `你是一位日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞片段（已含振假名，僅需翻譯）：
+
+${lines}
+
+請將每一段翻譯為繁體中文，回傳時以 index 對應原輸入的索引（從 0 開始）。
+
+${cfg.translationRules}`;
+
+  const applyTranslations = (translations: { index: number; translation: string }[]): Segment[] => {
+    const byIndex = new Map(translations.map(t => [t.index, t.translation]));
+    return batch.map((raw, i) => ({
+      id:          '',
+      start:       raw.start,
+      end:         raw.end,
+      japanese:    raw.text,
+      translation: byIndex.get(i) ?? '',
+      furigana:    raw.furigana ?? [],
+    }));
+  };
+
+  if (provider === 'groq') {
+    const raw = await groqGenerate(apiKey, model, [
+      { role: 'system', content: cfg.systemMessage },
+      { role: 'user',   content: prompt + '\n\n' + TRANSLATIONS_HINT },
+    ]);
+    let json: unknown;
+    try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
+    const r = TranslationsSchema.safeParse(json);
+    if (!r.success) throw new Error('Groq 翻譯輸出格式不符合預期，請稍後再試。');
+    return applyTranslations(r.data.translations);
+  }
+
+  const ai = createAi(provider, apiKey);
+  const { output } = await ai.generate({
+    model,
+    output: { schema: TranslationsSchema },
+    prompt,
+  });
+  if (!output?.translations) throw new Error('AI 翻譯失敗');
+  return applyTranslations(output.translations);
 }
 
 // ── 完整 AI 生成（無任何字幕來源時使用）──────────────────────────────────

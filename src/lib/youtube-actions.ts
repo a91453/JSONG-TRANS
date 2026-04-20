@@ -15,6 +15,7 @@ import { fetchYouTubeCaptions } from './youtube-captions';
 import { searchLrcLib } from './lrclib';
 import { secondsToSrtTime } from './subtitle-utils';
 import { transcribeYouTubeWithWhisper } from './groq-whisper';
+import { parseFuriganaString, stripFurigana, type FuriganaItem } from './furigana-parser';
 
 // ── 型別定義 ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,8 @@ export interface RawSegment {
   start: number;
   end: number;
   text: string;
+  /** 預標注振假名（由 Cloud Run 轉錄服務提供）；存在時可跳過 AI 標注步驟 */
+  furigana?: FuriganaItem[];
 }
 
 export interface SmartSubtitleResult {
@@ -121,9 +124,21 @@ async function fetchExternalTranscription(
       return null;
     }
     const data = await res.json();
-    const segs: RawSegment[] = (data.segments ?? []).filter(
-      (s: any) => typeof s.start === 'number' && typeof s.end === 'number' && s.text
-    );
+    const segs: RawSegment[] = (data.segments ?? [])
+      .filter((s: any) => typeof s.start === 'number' && typeof s.end === 'number' && (s.text || s.furigana))
+      .map((s: any): RawSegment => {
+        // Cloud Run 若提供 furigana 字串（含 inline 讀音），解析為陣列並還原純日文 text
+        const parsed = parseFuriganaString(typeof s.furigana === 'string' ? s.furigana : null);
+        const text: string =
+          (typeof s.text === 'string' && s.text.trim()) ? s.text
+          : stripFurigana(typeof s.furigana === 'string' ? s.furigana : '');
+        return {
+          start: s.start,
+          end:   s.end,
+          text,
+          ...(parsed.length > 0 ? { furigana: parsed } : {}),
+        };
+      });
     return segs.length >= 3 ? segs : null;
   } catch (e: any) {
     if (e.message === 'YOUTUBE_AUTH_REQUIRED') throw e;
