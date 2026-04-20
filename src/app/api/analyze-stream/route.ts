@@ -18,9 +18,10 @@ export const maxDuration = 60;
 import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { annotateBatch, translateBatch, generateFull, type RawSeg } from '@/ai/nodes/annotateNode';
 
-const BATCH_SIZE  = 15;
-// 免費版 Gemini 每分鐘限 5 次；2 個 worker 加上 withRetry 等待可穩定消化
-const CONCURRENCY = 2;
+// 30 segments/batch → 2-3 batches for most songs (reduces total API calls)
+const BATCH_SIZE  = 30;
+// CONCURRENCY=1 keeps sequential execution predictable under Vercel's 60s limit
+const CONCURRENCY = 1;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];

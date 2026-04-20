@@ -60,13 +60,15 @@ function parseRetryAfterMs(err: any): number {
   return 20_000; // 預設 20s
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
       if (isRateLimitError(err) && attempt < maxRetries) {
-        const waitMs = attempt === 0 ? parseRetryAfterMs(err) : (attempt + 1) * 10_000;
+        // Cap at 8s so we don't blow Vercel's 60s limit across multiple batches
+        const suggested = parseRetryAfterMs(err);
+        const waitMs    = Math.min(suggested, 8_000);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }

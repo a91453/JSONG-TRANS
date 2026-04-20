@@ -31,14 +31,16 @@ import {
   Lightbulb,
   BookOpen,
   Download,
-  LogIn
+  LogIn,
+  FileUp,
 } from "lucide-react"
 import { Segment } from "@/types"
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import {
   DropdownMenu,
@@ -46,10 +48,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Textarea } from "@/components/ui/textarea"
 import { convertToRomaji } from "@/lib/romaji-utils"
 import { explainSentenceAction, type ExplainOutput } from "@/ai/flows/explain-sentence"
+import { annotateSegmentsAction } from "@/ai/flows/analyze-video"
 import { speak } from "@/lib/speech"
-import { generateSRT } from "@/lib/subtitle-utils"
+import { generateSRT, parseSRT, parseTXT } from "@/lib/subtitle-utils"
+import { useHistoryStore } from "@/store/use-app-store"
 
 function LearnContent() {
   const searchParams = useSearchParams()
@@ -74,9 +79,14 @@ function LearnContent() {
   const [captionOffset, setCaptionOffset] = useState(0)
   const [isExplaining, setIsExplaining] = useState(false)
   const [explainData, setExplainData] = useState<ExplainOutput | null>(null)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [importText, setImportText]     = useState("")
+  const [isImporting, setIsImporting]   = useState(false)
+  const importFileRef = useRef<HTMLInputElement>(null)
 
   const { toast } = useToast()
   const { addEntry, addAllFromSegment, contains: dictContains } = useDictionaryStore()
+  const { saveResult } = useHistoryStore()
   const { addFavorite, isFavorited } = useFavoriteStore()
   const {
     response, streamedSegments, isLoading, isSigningIn,
@@ -219,6 +229,52 @@ function LearnContent() {
     }
   }
 
+  const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setImportText(ev.target?.result as string)
+      toast({ title: "檔案已載入", description: file.name })
+    }
+    reader.readAsText(file)
+    if (e.target) e.target.value = ""
+  }
+
+  const handleManualImport = async () => {
+    if (!importText.trim()) return
+    const provider = settings.aiProvider
+    const apiKey   = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey
+    if (!apiKey) {
+      toast({ variant: "destructive", title: "缺少 API Key", description: "請先在設定中配置 API Key。" })
+      return
+    }
+    setIsImporting(true)
+    setIsImportDialogOpen(false)
+    try {
+      const segs = importText.includes("-->") ? parseSRT(importText) : parseTXT(importText)
+      if (segs.length === 0) throw new Error("無法解析文字，請確認格式（SRT 或純文字）。")
+      const result   = await annotateSegmentsAction(segs, {
+        provider,
+        apiKey,
+        model: provider === 'google' ? settings.geminiModel : settings.groqModel,
+      })
+      const videoId     = v.length === 11 ? v : `file-${Date.now()}`
+      const finalResult = { ...result, videoId }
+      saveResult(finalResult, videoTitle || "匯入字幕", artistName || "自定義")
+      toast({ title: "匯入完成", description: `${result.segments.length} 段字幕已就緒。` })
+      if (videoId !== v) {
+        router.push(`/learn?v=${videoId}`)
+      } else {
+        analyze(v, false)
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "匯入失敗", description: err.message })
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
   const handleShare = () => {
     if (!response) return;
     let text = `🎵 ${videoTitle}\n${artistName ? `🎤 ${artistName}\n` : ""}\n`;
@@ -336,6 +392,7 @@ function LearnContent() {
                 <DropdownMenuContent align="end" className="rounded-2xl">
                   <DropdownMenuItem onClick={handleShare}><Share2 className="mr-2 h-4 w-4" /> 分享逐字稿</DropdownMenuItem>
                   <DropdownMenuItem onClick={handleDownloadSRT}><Download className="mr-2 h-4 w-4" /> 下載 SRT 字幕</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsImportDialogOpen(true)}><FileUp className="mr-2 h-4 w-4" /> 手動匯入字幕</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => analyze(v, true)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -506,6 +563,50 @@ function LearnContent() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 手動匯入字幕 ───────────────────────────────────────────────── */}
+      {isImporting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-background rounded-[2rem] p-8 flex flex-col items-center gap-4 shadow-2xl">
+            <Loader2 className="animate-spin text-primary" size={40} />
+            <p className="text-sm font-black uppercase tracking-widest text-primary animate-pulse">AI 標注中…</p>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+        <DialogContent className="rounded-[2.5rem] max-w-lg shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black tracking-tighter uppercase text-center">手動匯入字幕</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs text-muted-foreground font-medium">貼上 SRT 字幕或純文字歌詞</p>
+              <div className="flex gap-2">
+                <input type="file" ref={importFileRef} onChange={handleImportFileSelect} accept=".srt,.txt" className="hidden" />
+                <Button variant="secondary" size="sm" className="h-7 rounded-lg text-[10px] font-black gap-1.5" onClick={() => importFileRef.current?.click()}>
+                  <FileUp size={12} /> 從檔案載入
+                </Button>
+              </div>
+            </div>
+            <Textarea
+              placeholder={"貼上 SRT 字幕或日文歌詞...\n（支援純文字或 .srt 格式）"}
+              className="min-h-[200px] rounded-2xl text-sm font-medium p-4 bg-muted/20 border-none resize-none focus-visible:ring-primary/20"
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+            />
+          </div>
+          <DialogFooter className="sm:justify-center">
+            <Button
+              className="w-full h-12 rounded-2xl font-bold bg-primary hover:bg-primary/90"
+              disabled={!importText.trim() || isImporting}
+              onClick={handleManualImport}
+            >
+              確認匯入並分析
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
