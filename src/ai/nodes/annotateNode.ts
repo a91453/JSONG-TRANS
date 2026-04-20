@@ -37,6 +37,34 @@ export type RawSeg     = {
 
 // ── 工具 ──────────────────────────────────────────────────────────────────
 
+function isRateLimitError(err: any): boolean {
+  const msg: string = err?.message || '';
+  return (
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('429') ||
+    msg.includes('Quota') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('Too Many Requests')
+  );
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (isRateLimitError(err) && attempt < maxRetries) {
+        const waitMs = (attempt + 1) * 5000; // 5s, 10s, 15s
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('重試次數已耗盡');
+}
+
 function toTimestamp(sec: number): string {
   const m = Math.floor(sec / 60).toString().padStart(2, '0');
   const s = Math.floor(sec % 60).toString().padStart(2, '0');
@@ -97,11 +125,11 @@ ${cfg.translationRules}`;
   }
 
   const ai = createAi(provider, apiKey);
-  const { output } = await ai.generate({
+  const { output } = await withRetry(() => ai.generate({
     model,
     output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
     prompt,
-  });
+  }));
   if (!output?.annotatedSegments) throw new Error('AI 標注失敗');
   return output.annotatedSegments.map((seg, i) => ({
     ...seg,
@@ -175,11 +203,11 @@ ${cfg.translationRules}`;
   }
 
   const ai = createAi(provider, apiKey);
-  const { output } = await ai.generate({
+  const { output } = await withRetry(() => ai.generate({
     model,
     output: { schema: TranslationsSchema },
     prompt,
-  });
+  }));
   if (!output?.translations) throw new Error('AI 翻譯失敗');
   return applyTranslations(output.translations);
 }
@@ -216,11 +244,11 @@ ${cfg.annotationRules}
   }
 
   const ai = createAi(provider, apiKey);
-  const { output } = await ai.generate({
+  const { output } = await withRetry(() => ai.generate({
     model,
     output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
     prompt,
-  });
+  }));
   if (!output?.segments) throw new Error('AI 生成失敗');
   return output.segments;
 }
