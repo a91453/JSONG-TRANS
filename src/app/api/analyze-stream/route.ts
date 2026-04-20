@@ -16,7 +16,7 @@
 export const maxDuration = 60;
 
 import { getSmartSubtitles } from '@/lib/youtube-actions';
-import { annotateBatch, generateFull, type RawSeg } from '@/ai/nodes/annotateNode';
+import { annotateBatch, translateBatch, generateFull, type RawSeg } from '@/ai/nodes/annotateNode';
 
 const BATCH_SIZE  = 15;
 const CONCURRENCY = 5;
@@ -130,9 +130,19 @@ export async function POST(req: Request) {
           send('batch', { segments: withIds, batchIndex: 0, totalBatches: 1 });
           allAnnotated.push(...withIds);
         } else {
+          // 若來源已預先標注振假名（例如 Cloud Run 轉錄），只需 AI 翻譯
+          const hasPreAnnotatedFurigana =
+            rawSegments.length > 0 &&
+            Array.isArray(rawSegments[0].furigana) &&
+            rawSegments[0].furigana.length > 0;
+
           const batches      = chunk(rawSegments, BATCH_SIZE);
           const totalBatches = batches.length;
-          send('stage', { text: `並行標注 ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
+          const taskLabel    = hasPreAnnotatedFurigana ? '翻譯' : '標注';
+          if (hasPreAnnotatedFurigana) {
+            send('stage', { text: '振假名已預先標注，僅需翻譯 ⚡' });
+          }
+          send('stage', { text: `並行${taskLabel} ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
 
           let completed  = 0;
           let failed     = 0;
@@ -142,7 +152,8 @@ export async function POST(req: Request) {
             while (nextIdx < batches.length) {
               const i = nextIdx++;
               try {
-                const annotated = await annotateBatch(
+                const runner = hasPreAnnotatedFurigana ? translateBatch : annotateBatch;
+                const annotated = await runner(
                   batches[i], titleForPrompt, sourceLabel, provider, apiKey, model
                 );
                 const withIds = annotated.map(s => ({ ...s, id: crypto.randomUUID() }));
