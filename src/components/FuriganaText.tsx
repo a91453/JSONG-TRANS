@@ -5,8 +5,6 @@ import React, { useMemo } from 'react';
 import { convertToRomaji } from '@/lib/romaji-utils';
 import { cn } from '@/lib/utils';
 
-export type AnnotationMode = 'furigana' | 'romaji' | 'both' | 'none';
-
 interface FuriganaItem {
   word: string;
   reading: string;
@@ -15,7 +13,12 @@ interface FuriganaItem {
 interface FuriganaTextProps {
   text: string;
   furiganaItems: FuriganaItem[];
-  mode: AnnotationMode;
+  /** 顯示讀音（平假名）在原文上／下方 */
+  showFurigana: boolean;
+  /** 顯示羅馬拼音 */
+  showRomaji: boolean;
+  /** 純片假名單字也顯示讀音；關閉時僅漢字層顯示讀音 */
+  showKatakanaReading: boolean;
   fontSize?: number;
   active?: boolean;
   onWordClick?: (word: string, reading?: string) => void;
@@ -27,17 +30,24 @@ interface FuriToken {
   isAnnotated: boolean;
 }
 
+/** 是否為純片假名（含長音「ー」與半形 space / 標點以外的純外來語） */
+function isPureKatakana(text: string): boolean {
+  return /^[゠-ヿー・　\s]+$/.test(text);
+}
+
 /**
- * @fileOverview 歌詞標註組件 - 垂直三層排版加強版
+ * @fileOverview 歌詞標註組件 - 垂直三層排版
  * 視覺層級（由上至下）：
- * 1. Top: 羅馬拼音 (Romaji) - 輕量化輔助，增加字距
- * 2. Middle: 日文原文 (視覺重心) - 顯著放大，具備微背景對齊感
- * 3. Bottom: 振假名 (Furigana) - 緊貼原文下方
+ * 1. Top: 羅馬拼音 (showRomaji)
+ * 2. Middle: 日文原文 (視覺重心)
+ * 3. Bottom: 讀音假名 (showFurigana)
  */
-export const FuriganaText: React.FC<FuriganaTextProps> = ({ 
-  text, 
-  furiganaItems, 
-  mode, 
+export const FuriganaText: React.FC<FuriganaTextProps> = ({
+  text,
+  furiganaItems,
+  showFurigana,
+  showRomaji,
+  showKatakanaReading,
   fontSize = 20,
   active = false,
   onWordClick
@@ -80,10 +90,15 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
         const reading = tk.reading || tk.text;
         const romaji = convertToRomaji(reading);
         const hasFurigana = tk.isAnnotated && !!tk.reading;
+        // 純片假名單字（外來語）在 showKatakanaReading=false 時不顯示讀音
+        const suppressKatakanaReading =
+          !showKatakanaReading && tk.isAnnotated && isPureKatakana(tk.text);
+        const showReadingLine = showFurigana && hasFurigana && !suppressKatakanaReading;
+        const showRomajiLine  = showRomaji && !suppressKatakanaReading;
 
         return (
-          <div 
-            key={idx} 
+          <div
+            key={idx}
             className="flex flex-col items-center justify-end group cursor-pointer transition-transform hover:scale-105"
             onClick={(e) => {
               if (onWordClick) {
@@ -92,11 +107,11 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
               }
             }}
           >
-            {/* 層級 1：羅馬拼音 (Top) - 輔助導引 */}
+            {/* 層級 1：羅馬拼音 (Top) */}
             <div className="h-6 flex items-end justify-center mb-1 w-full">
-              {(mode === 'romaji' || mode === 'both') && (
-                <span 
-                  style={{ fontSize: subFontSize * 0.7 }} 
+              {showRomajiLine && (
+                <span
+                  style={{ fontSize: subFontSize * 0.7 }}
                   className={cn(
                     "font-sans font-black tracking-[0.25em] whitespace-nowrap px-1 uppercase opacity-40",
                     active ? "text-primary" : "text-muted-foreground/30"
@@ -123,11 +138,11 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
               </span>
             </div>
 
-            {/* 層級 3：振假名 (Bottom) - 發音提示 */}
+            {/* 層級 3：讀音假名 (Bottom) */}
             <div className="h-6 flex items-start justify-center mt-1.5 w-full">
-              {(mode === 'furigana' || mode === 'both') && hasFurigana && (
-                <span 
-                  style={{ fontSize: subFontSize }} 
+              {showReadingLine && (
+                <span
+                  style={{ fontSize: subFontSize }}
                   className={cn(
                     "font-sans font-bold",
                     active ? "text-primary/80" : "text-muted-foreground/30"

@@ -17,7 +17,10 @@ import { convertToRomaji } from '@/lib/romaji-utils';
 interface SettingsState {
   themeMode: 'system' | 'light' | 'dark';
   lyricsFontSize: number;
-  defaultAnnotation: 'furigana' | 'romaji' | 'both' | 'none';
+  // 標注顯示偏好（可複選；預設 furigana 開、romaji 關、katakana 讀音開）
+  showFurigana: boolean;
+  showRomaji: boolean;
+  showKatakanaReading: boolean;
   loopCount: number;
   autoPlayOnTap: boolean;
   showTranslation: boolean;
@@ -32,7 +35,9 @@ interface SettingsState {
   cloudRunCookieContent: string;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setLyricsFontSize: (size: number) => void;
-  setDefaultAnnotation: (mode: 'furigana' | 'romaji' | 'both' | 'none') => void;
+  setShowFurigana: (v: boolean) => void;
+  setShowRomaji: (v: boolean) => void;
+  setShowKatakanaReading: (v: boolean) => void;
   setLoopCount: (count: number) => void;
   setAutoPlayOnTap: (enabled: boolean) => void;
   setShowTranslation: (enabled: boolean) => void;
@@ -51,7 +56,9 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       themeMode: 'system',
       lyricsFontSize: 15,
-      defaultAnnotation: 'furigana',
+      showFurigana: true,
+      showRomaji: false,
+      showKatakanaReading: true,
       loopCount: 3,
       autoPlayOnTap: true,
       showTranslation: true,
@@ -64,7 +71,9 @@ export const useSettingsStore = create<SettingsState>()(
       cloudRunCookieContent: '',
       setThemeMode: (themeMode) => set({ themeMode }),
       setLyricsFontSize: (lyricsFontSize) => set({ lyricsFontSize }),
-      setDefaultAnnotation: (defaultAnnotation) => set({ defaultAnnotation }),
+      setShowFurigana: (showFurigana) => set({ showFurigana }),
+      setShowRomaji: (showRomaji) => set({ showRomaji }),
+      setShowKatakanaReading: (showKatakanaReading) => set({ showKatakanaReading }),
       setLoopCount: (loopCount) => set({ loopCount }),
       setAutoPlayOnTap: (autoPlayOnTap) => set({ autoPlayOnTap }),
       setShowTranslation: (showTranslation) => set({ showTranslation }),
@@ -77,7 +86,24 @@ export const useSettingsStore = create<SettingsState>()(
       setCloudRunCookieContent: (cloudRunCookieContent) => set({ cloudRunCookieContent }),
       resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '', cloudRunGroqApiKey: '', cloudRunCookieContent: '' }),
     }),
-    { name: 'nihongo-settings-storage-v5' }
+    {
+      name: 'nihongo-settings-storage-v5',
+      version: 1,
+      // v0 → v1：把單一 defaultAnnotation enum 轉為三個獨立 boolean
+      migrate: (persistedState: any, version: number) => {
+        if (version < 1) {
+          const mode = persistedState?.defaultAnnotation ?? 'furigana';
+          const { defaultAnnotation, ...rest } = persistedState ?? {};
+          return {
+            ...rest,
+            showFurigana:        mode === 'furigana' || mode === 'both',
+            showRomaji:          mode === 'romaji'   || mode === 'both',
+            showKatakanaReading: true,
+          };
+        }
+        return persistedState;
+      },
+    }
   )
 );
 

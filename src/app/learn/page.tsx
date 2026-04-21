@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import YouTube, { YouTubeProps } from 'react-youtube'
-import { FuriganaText, AnnotationMode } from "@/components/FuriganaText"
+import { FuriganaText } from "@/components/FuriganaText"
 import { VideoPlayerControls } from "@/components/VideoPlayerControls"
 import { LoadingSkeleton } from "@/components/LoadingSkeleton"
 import { SourceBadge } from "@/components/SourceBadge"
@@ -68,7 +68,10 @@ function LearnContent() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1.0)
   const [isPinned, setIsPinned] = useState(false)
-  const [annotationMode, setAnnotationMode] = useState<AnnotationMode>(settings.defaultAnnotation)
+  // 會話內可覆寫設定頁預設值；初始值跟隨全域 settings
+  const [showFurigana,        setShowFurigana       ] = useState(settings.showFurigana)
+  const [showRomaji,          setShowRomaji         ] = useState(settings.showRomaji)
+  const [showKatakanaReading, setShowKatakanaReading] = useState(settings.showKatakanaReading)
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null)
   
   const [loopingSegmentId, setLoopingSegmentId] = useState<string | null>(null)
@@ -105,8 +108,10 @@ function LearnContent() {
   }, [v, isValidVideoId, analyze, response, isLoading])
 
   useEffect(() => {
-    setAnnotationMode(settings.defaultAnnotation)
-  }, [settings.defaultAnnotation])
+    setShowFurigana(settings.showFurigana)
+    setShowRomaji(settings.showRomaji)
+    setShowKatakanaReading(settings.showKatakanaReading)
+  }, [settings.showFurigana, settings.showRomaji, settings.showKatakanaReading])
 
   // streamedSegments grows batch-by-batch during SSE; falls back to response.segments on cache hit
   const segments = streamedSegments.length > 0 ? streamedSegments : (response?.segments ?? [])
@@ -420,21 +425,23 @@ function LearnContent() {
           )}
 
           <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
-            {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (
+            {([
+              { key: 'furigana', label: '假名',   state: showFurigana,        toggle: () => setShowFurigana(v => !v) },
+              { key: 'romaji',   label: '拼音',   state: showRomaji,          toggle: () => setShowRomaji(v => !v) },
+              { key: 'katakana', label: 'カ讀音', state: showKatakanaReading, toggle: () => setShowKatakanaReading(v => !v) },
+            ] as const).map(({ key, label, state, toggle }) => (
               <Button
-                key={mode}
+                key={key}
                 variant="ghost"
                 size="sm"
+                aria-pressed={state}
                 className={cn(
                   "rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
-                  annotationMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                  state ? "bg-primary text-primary-foreground" : "text-muted-foreground"
                 )}
-                onClick={() => { setAnnotationMode(mode); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
+                onClick={() => { toggle(); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
               >
-                {mode === 'furigana' && "假名"}
-                {mode === 'romaji' && "拼音"}
-                {mode === 'both' && "完整"}
-                {mode === 'none' && "隱藏"}
+                {label}
               </Button>
             ))}
             <div className="w-px h-4 bg-border shrink-0 mx-1" />
@@ -495,7 +502,9 @@ function LearnContent() {
                     <FuriganaText
                       text={seg.japanese}
                       furiganaItems={seg.furigana}
-                      mode={annotationMode}
+                      showFurigana={showFurigana}
+                      showRomaji={showRomaji}
+                      showKatakanaReading={showKatakanaReading}
                       fontSize={settings.lyricsFontSize}
                       active={isActive}
                       onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
@@ -540,7 +549,7 @@ function LearnContent() {
           {selectedSegment && (
             <div className="space-y-8 py-6">
               <div className="p-6 bg-muted/30 rounded-[2rem] border border-border">
-                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} mode={annotationMode} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
+                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">

@@ -678,19 +678,36 @@ export default function SettingsPage() {
                   <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-600">
                     <span className="font-bold text-xs">あ</span>
                   </div>
-                  <Label className="text-sm font-bold">預設標注模式</Label>
+                  <div>
+                    <Label className="text-sm font-bold">顯示讀音（平假名）</Label>
+                    <p className="text-[9px] text-muted-foreground">漢字上方標注振假名</p>
+                  </div>
                 </div>
-                <Select value={settings.defaultAnnotation} onValueChange={(val: any) => settings.setDefaultAnnotation(val)}>
-                  <SelectTrigger className="w-32 h-9 rounded-xl border-none bg-muted/50 text-xs font-bold">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="furigana">僅假名</SelectItem>
-                    <SelectItem value="romaji">僅羅馬拼音</SelectItem>
-                    <SelectItem value="both">假名 + 拼音</SelectItem>
-                    <SelectItem value="none">隱藏標注</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Switch checked={settings.showFurigana} onCheckedChange={settings.setShowFurigana} />
+              </div>
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600">
+                    <span className="font-black text-[10px]">A</span>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-bold">顯示羅馬拼音</Label>
+                    <p className="text-[9px] text-muted-foreground">原文上方以拉丁字母標音</p>
+                  </div>
+                </div>
+                <Switch checked={settings.showRomaji} onCheckedChange={settings.setShowRomaji} />
+              </div>
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-pink-500/10 flex items-center justify-center text-pink-600">
+                    <span className="font-bold text-xs">カ</span>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-bold">片假名也顯示讀音</Label>
+                    <p className="text-[9px] text-muted-foreground">關閉時外來語（純片假名）不標讀音</p>
+                  </div>
+                </div>
+                <Switch checked={settings.showKatakanaReading} onCheckedChange={settings.setShowKatakanaReading} />
               </div>
               <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
