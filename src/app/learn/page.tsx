@@ -438,7 +438,7 @@ function LearnContent() {
             {([
               { key: 'furigana', label: '假名',   state: showFurigana,        toggle: () => setShowFurigana(v => !v) },
               { key: 'romaji',   label: '拼音',   state: showRomaji,          toggle: () => setShowRomaji(v => !v) },
-              { key: 'katakana', label: 'カ讀音', state: showKatakanaReading, toggle: () => setShowKatakanaReading(v => !v) },
+              { key: 'katakana', label: '片讀音', state: showKatakanaReading, toggle: () => setShowKatakanaReading(v => !v) },
             ] as const).map(({ key, label, state, toggle }) => (
               <Button
                 key={key}

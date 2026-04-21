@@ -75,12 +75,14 @@ export function convertToRomaji(input: string): string {
       continue;
     }
 
-    // 3. 一般字元
+    // 3. 一般字元（CJK 漢字直接跳過，無法轉羅馬拼音）
     const mapped = HIRAGANA_MAP[char];
     if (mapped !== undefined) {
       results.push(mapped);
     } else {
-      results.push(char);
+      const code = char.charCodeAt(0);
+      const isCJK = (code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3400 && code <= 0x4DBF);
+      if (!isCJK) results.push(char);
     }
     i++;
   }

@@ -37,10 +37,40 @@ interface FuriToken {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const KANA_RE = /^[぀-ゟ゠-ヿー]$/;
+const KANA_RE      = /^[぀-ゟ゠-ヿー]$/;
+const SMALL_KANA   = /^[ぁぃぅぇぉゃゅょゎァィゥェォャュョヮ]/;
+const CJK_RE       = /[一-鿿㐀-䶿]/;
 
 function isPureKatakana(text: string): boolean {
   return /^[゠-ヿー・　\s]+$/.test(text);
+}
+
+/**
+ * Split an unannotated fragment for wordcard mode:
+ * - Short pure-kana fragments (≤4 chars) stay as one pill.
+ * - Longer or mixed kana+kanji fragments are split at character boundaries,
+ *   merging compound kana pairs (e.g. じゃ, きゅ) into a single unit.
+ */
+function splitUnannotatedForWordcard(text: string): FuriToken[] {
+  if (!text) return [];
+  if (text.length <= 4 && !CJK_RE.test(text)) {
+    return [{ text, isAnnotated: false }];
+  }
+  const chars = Array.from(text);
+  const result: FuriToken[] = [];
+  let i = 0;
+  while (i < chars.length) {
+    const ch   = chars[i];
+    const next = chars[i + 1] ?? '';
+    if (next && SMALL_KANA.test(next)) {
+      result.push({ text: ch + next, isAnnotated: false });
+      i += 2;
+    } else {
+      result.push({ text: ch, isAnnotated: false });
+      i++;
+    }
+  }
+  return result;
 }
 
 /** Cycle through soft pastel colours for pill cards */
@@ -143,12 +173,20 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
     return rows;
   }, [flatTokens, maxCharsPerLine]);
 
-  // ── 4. Wordcard mode: active index ────────────────────────────────────────
+  // ── 4. Wordcard mode: expand unannotated tokens for better granularity ──────
+  const wordcardTokens = useMemo((): FuriToken[] => {
+    if (layout !== 'wordcard') return [];
+    return rawTokens.flatMap(tk =>
+      tk.isAnnotated ? [tk] : splitUnannotatedForWordcard(tk.text)
+    );
+  }, [rawTokens, layout]);
+
+  // ── 5. Wordcard mode: active index ───────────────────────────────────────
   const activeIdx = useMemo(() => {
     if (layout !== 'wordcard') return -1;
     if (currentTime === undefined || segmentStart === undefined || segmentEnd === undefined) return -1;
-    return getActiveTokenIndex(rawTokens, currentTime, segmentStart, segmentEnd);
-  }, [layout, rawTokens, currentTime, segmentStart, segmentEnd]);
+    return getActiveTokenIndex(wordcardTokens, currentTime, segmentStart, segmentEnd);
+  }, [layout, wordcardTokens, currentTime, segmentStart, segmentEnd]);
 
   const subFontSize = Math.max(fontSize * 0.52, 11);
 
@@ -161,7 +199,7 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
         'flex flex-wrap items-end gap-x-2 gap-y-6 transition-all duration-700',
         active ? 'opacity-100' : 'opacity-30',
       )}>
-        {rawTokens.map((tk, idx) => {
+        {wordcardTokens.map((tk, idx) => {
           const reading = tk.reading ?? tk.text;
           const romaji  = convertToRomaji(reading);
           const hasFurigana    = tk.isAnnotated && !!tk.reading;
