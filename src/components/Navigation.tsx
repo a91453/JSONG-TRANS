@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import { Home, Gamepad2, Book, LayoutDashboard, Settings, LogIn, LogOut, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useGoogleAuth } from '@/hooks/use-google-auth';
+import { useToast } from '@/hooks/use-toast';
 
 const navItems = [
   { label: '首頁', icon: Home, href: '/' },
@@ -19,6 +20,7 @@ const navItems = [
 export function Navigation() {
   const pathname = usePathname();
   const { signIn, signOut, getValidToken, isSigningIn } = useGoogleAuth();
+  const { toast } = useToast();
   const [isSignedIn, setIsSignedIn] = useState(false);
 
   // sessionStorage 只在 client 可讀；每分鐘重新確認 token 是否過期
@@ -34,8 +36,25 @@ export function Navigation() {
       await signOut();
       setIsSignedIn(false);
     } else {
-      const token = await signIn();
-      setIsSignedIn(!!token);
+      try {
+        const token = await signIn();
+        if (token) {
+          setIsSignedIn(true);
+          toast({ title: 'Google 登入成功', description: '已連結帳號，可取得受限字幕。' });
+        } else if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+          toast({
+            title: 'Google 登入未設定',
+            description: '請在 Vercel（或 .env.local）設定 NEXT_PUBLIC_FIREBASE_API_KEY 等四個環境變數。',
+            variant: 'destructive',
+          });
+        }
+      } catch (e: any) {
+        toast({
+          title: 'Google 登入失敗',
+          description: e?.message ?? String(e),
+          variant: 'destructive',
+        });
+      }
     }
   };
 
