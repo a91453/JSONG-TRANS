@@ -68,6 +68,16 @@ export function useGoogleAuth() {
       ) {
         return null;
       }
+      if (e.code === 'auth/popup-blocked') {
+        const err = new Error('瀏覽器封鎖了彈出視窗，請在網址列允許此網站開啟彈出視窗後再試一次。');
+        (err as any).code = e.code;
+        throw err;
+      }
+      if (e.code === 'auth/unauthorized-domain') {
+        const err = new Error('此網域未獲授權。請至 Firebase Console → Authentication → Settings → 授權網域，將目前的部署網址加入清單。');
+        (err as any).code = e.code;
+        throw err;
+      }
       throw e;
     } finally {
       setIsSigningIn(false);

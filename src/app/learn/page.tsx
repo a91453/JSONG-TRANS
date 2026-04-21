@@ -672,45 +672,67 @@ function LearnContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isExplaining || !!explainData} onOpenChange={(open) => !open && setExplainData(null)}>
-        <DialogContent className="rounded-[3rem] max-w-sm bg-background shadow-2xl overflow-y-auto max-h-[85vh] no-scrollbar">
-          <DialogHeader><DialogTitle className="text-center font-black text-2xl tracking-tighter uppercase">AI 深度解說</DialogTitle></DialogHeader>
-          {isExplaining ? (
-            <div className="py-20 flex flex-col items-center justify-center gap-6"><Loader2 className="animate-spin text-primary" size={48} /><p className="text-sm font-bold text-muted-foreground animate-pulse">正在解析文法奧秘...</p></div>
-          ) : explainData && (
-            <div className="space-y-8 py-4">
-              <section className="space-y-3">
-                <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><BookOpen size={14} /> 句子結構拆解</h3>
-                <div className="grid grid-cols-1 gap-2">
-                  {explainData.breakdown.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-muted/30 rounded-xl">
-                      <div className="flex flex-col">
-                        <span className="text-lg font-bold text-primary">{item.token}</span>
-                        {item.reading && <span className="text-[10px] font-medium text-muted-foreground">{item.reading}</span>}
+      {/* Floating AI explanation card — no dim overlay, slides up from bottom */}
+      {(isExplaining || !!explainData) && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setExplainData(null)} />
+          <div className="fixed bottom-20 left-0 right-0 z-50 px-4 flex justify-center pointer-events-none">
+            <div className="w-full max-w-sm pointer-events-auto bg-background rounded-[2rem] shadow-2xl border border-border overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+              <div className="flex flex-col items-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+              </div>
+              <div className="overflow-y-auto max-h-[55vh] no-scrollbar px-5 pb-6">
+                <h2 className="text-center font-black text-xl tracking-tighter uppercase mb-4 flex items-center justify-center gap-2">
+                  <Lightbulb size={16} className="text-primary" /> AI 深度解說
+                </h2>
+                {isExplaining ? (
+                  <div className="py-10 flex flex-col items-center gap-4">
+                    <Loader2 className="animate-spin text-primary" size={40} />
+                    <p className="text-sm font-bold text-muted-foreground animate-pulse">正在解析文法奧秘...</p>
+                  </div>
+                ) : explainData && (
+                  <div className="space-y-6">
+                    <section className="space-y-2">
+                      <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><BookOpen size={12} /> 句子結構拆解</h3>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {explainData.breakdown.map((item, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-muted/30 rounded-xl">
+                            <div className="flex flex-col">
+                              <span className="text-base font-bold text-primary">{item.token}</span>
+                              {item.reading && <span className="text-[10px] font-medium text-muted-foreground">{item.reading}</span>}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">{item.partOfSpeech}</span>
+                              <p className="text-xs font-medium mt-1">{item.meaning}</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">{item.partOfSpeech}</span>
-                        <p className="text-xs font-medium mt-1">{item.meaning}</p>
+                    </section>
+                    <section className="space-y-2">
+                      <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Lightbulb size={12} /> 關鍵文法點</h3>
+                      <div className="space-y-2">
+                        {explainData.grammarPoints.map((gp, i) => (
+                          <div key={i} className="p-3 bg-primary/5 rounded-2xl border border-primary/10">
+                            <p className="text-sm font-bold text-primary mb-1">{gp.point}</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{gp.explanation}</p>
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="space-y-3">
-                <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Lightbulb size={14} /> 關鍵文法點</h3>
-                <div className="space-y-3">
-                  {explainData.grammarPoints.map((gp, i) => (
-                    <div key={i} className="p-4 bg-primary/5 rounded-2xl border border-primary/10"><p className="text-sm font-bold text-primary mb-1">{gp.point}</p><p className="text-xs text-muted-foreground leading-relaxed">{gp.explanation}</p></div>
-                  ))}
-                </div>
-              </section>
-              {explainData.cultureNote && (
-                <section className="p-4 bg-orange-50 rounded-2xl border border-orange-100"><h3 className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-2">💡 語境補充</h3><p className="text-xs text-orange-900 leading-relaxed">{explainData.cultureNote}</p></section>
-              )}
+                    </section>
+                    {explainData.cultureNote && (
+                      <section className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-2xl border border-orange-100 dark:border-orange-800">
+                        <h3 className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-1">💡 語境補充</h3>
+                        <p className="text-xs text-orange-900 dark:text-orange-200 leading-relaxed">{explainData.cultureNote}</p>
+                      </section>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </>
+      )}
     </div>
   )
 }
