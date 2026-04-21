@@ -21,6 +21,7 @@ interface SettingsState {
   showFurigana: boolean;
   showRomaji: boolean;
   showKatakanaReading: boolean;
+  maxCharsPerLine: number;   // 0 = 不限制
   loopCount: number;
   autoPlayOnTap: boolean;
   showTranslation: boolean;
@@ -38,6 +39,7 @@ interface SettingsState {
   setShowFurigana: (v: boolean) => void;
   setShowRomaji: (v: boolean) => void;
   setShowKatakanaReading: (v: boolean) => void;
+  setMaxCharsPerLine: (n: number) => void;
   setLoopCount: (count: number) => void;
   setAutoPlayOnTap: (enabled: boolean) => void;
   setShowTranslation: (enabled: boolean) => void;
@@ -59,6 +61,7 @@ export const useSettingsStore = create<SettingsState>()(
       showFurigana: true,
       showRomaji: false,
       showKatakanaReading: true,
+      maxCharsPerLine: 0,
       loopCount: 3,
       autoPlayOnTap: true,
       showTranslation: true,
@@ -74,6 +77,7 @@ export const useSettingsStore = create<SettingsState>()(
       setShowFurigana: (showFurigana) => set({ showFurigana }),
       setShowRomaji: (showRomaji) => set({ showRomaji }),
       setShowKatakanaReading: (showKatakanaReading) => set({ showKatakanaReading }),
+      setMaxCharsPerLine: (maxCharsPerLine) => set({ maxCharsPerLine }),
       setLoopCount: (loopCount) => set({ loopCount }),
       setAutoPlayOnTap: (autoPlayOnTap) => set({ autoPlayOnTap }),
       setShowTranslation: (showTranslation) => set({ showTranslation }),

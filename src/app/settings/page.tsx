@@ -665,6 +665,29 @@ export default function SettingsPage() {
                   <Slider value={[settings.lyricsFontSize]} min={14} max={32} step={1} onValueChange={(val) => settings.setLyricsFontSize(val[0])} />
                 </div>
               </div>
+              <div className="p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-600">
+                      <Type size={18} />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">每行最多字元數</Label>
+                      <p className="text-[9px] text-muted-foreground">超過此數強制換行；0 = 不限制</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-muted-foreground">
+                    {settings.maxCharsPerLine === 0 ? '不限' : `${settings.maxCharsPerLine} 字`}
+                  </span>
+                </div>
+                <div className="px-2">
+                  <Slider
+                    value={[settings.maxCharsPerLine]}
+                    min={0} max={50} step={1}
+                    onValueChange={(val) => settings.setMaxCharsPerLine(val[0])}
+                  />
+                </div>
+              </div>
             </CardContent>
           </Card>
         </section>

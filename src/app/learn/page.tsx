@@ -505,6 +505,7 @@ function LearnContent() {
                       showFurigana={showFurigana}
                       showRomaji={showRomaji}
                       showKatakanaReading={showKatakanaReading}
+                      maxCharsPerLine={settings.maxCharsPerLine}
                       fontSize={settings.lyricsFontSize}
                       active={isActive}
                       onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
@@ -549,7 +550,7 @@ function LearnContent() {
           {selectedSegment && (
             <div className="space-y-8 py-6">
               <div className="p-6 bg-muted/30 rounded-[2rem] border border-border">
-                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
+                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} maxCharsPerLine={settings.maxCharsPerLine} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
