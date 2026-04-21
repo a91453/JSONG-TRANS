@@ -44,7 +44,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { formatTime, cn } from "@/lib/utils";
-import { annotateSegmentsAction } from "@/ai/flows/analyze-video";
+import { annotateSegmentsAction, annotateFuriganaOnlyAction } from "@/ai/flows/analyze-video";
 import { 
   Dialog, 
   DialogContent, 
@@ -118,22 +118,30 @@ export default function HomePage() {
         author = info?.author || author;
       }
 
-      let segments = [];
-      if (manualText.includes("-->")) {
-        segments = parseSRT(manualText);
-      } else {
-        segments = parseTXT(manualText);
-      }
+      const parsed = manualText.includes("-->") ? parseSRT(manualText) : parseTXT(manualText);
 
-      if (segments.length === 0) throw new Error("無法解析文字內容，請檢查格式。");
+      if (parsed.length === 0) throw new Error("無法解析文字內容，請確認格式（SRT 含時間軸，或純文字每行一句）。");
 
-      toast({ title: "開始處理", description: "正在進行 AI 標註與翻譯..." });
-      
-      const result = await annotateSegmentsAction(segments, {
+      const aiConfig = {
         provider: settings.aiProvider,
-        apiKey: settings.aiProvider === 'google' ? settings.geminiApiKey : settings.groqApiKey,
-        model: settings.aiProvider === 'google' ? settings.geminiModel : settings.groqModel
+        apiKey:   settings.aiProvider === 'google' ? settings.geminiApiKey : settings.groqApiKey,
+        model:    settings.aiProvider === 'google' ? settings.geminiModel  : settings.groqModel,
+      };
+
+      const isBilingual = parsed.every(s => s.translation);
+      toast({
+        title:       "開始處理",
+        description: isBilingual
+          ? "雙語 SRT 偵測成功，僅需標注振假名…"
+          : "正在進行 AI 標注與翻譯…",
       });
+
+      const result = isBilingual
+        ? await annotateFuriganaOnlyAction(
+            parsed as Array<{ start: number; end: number; text: string; translation: string }>,
+            aiConfig
+          )
+        : await annotateSegmentsAction(parsed, aiConfig);
       const finalResult = { ...result, videoId };
       
       saveResult(finalResult, title, author);

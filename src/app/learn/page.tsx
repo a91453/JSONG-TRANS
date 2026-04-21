@@ -51,7 +51,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { convertToRomaji } from "@/lib/romaji-utils"
 import { explainSentenceAction, type ExplainOutput } from "@/ai/flows/explain-sentence"
-import { annotateSegmentsAction } from "@/ai/flows/analyze-video"
+import { annotateSegmentsAction, annotateFuriganaOnlyAction } from "@/ai/flows/analyze-video"
 import { speak } from "@/lib/speech"
 import { generateSRT, parseSRT, parseTXT } from "@/lib/subtitle-utils"
 import { useHistoryStore } from "@/store/use-app-store"
@@ -252,13 +252,16 @@ function LearnContent() {
     setIsImporting(true)
     setIsImportDialogOpen(false)
     try {
-      const segs = importText.includes("-->") ? parseSRT(importText) : parseTXT(importText)
-      if (segs.length === 0) throw new Error("無法解析文字，請確認格式（SRT 或純文字）。")
-      const result   = await annotateSegmentsAction(segs, {
-        provider,
-        apiKey,
-        model: provider === 'google' ? settings.geminiModel : settings.groqModel,
-      })
+      const parsed = importText.includes("-->") ? parseSRT(importText) : parseTXT(importText)
+      if (parsed.length === 0) throw new Error("無法解析文字，請確認格式（SRT 含時間軸，或純文字每行一句）。")
+      const aiConfig = { provider, apiKey, model: provider === 'google' ? settings.geminiModel : settings.groqModel }
+      const isBilingual = parsed.every(s => s.translation)
+      const result = isBilingual
+        ? await annotateFuriganaOnlyAction(
+            parsed as Array<{ start: number; end: number; text: string; translation: string }>,
+            aiConfig
+          )
+        : await annotateSegmentsAction(parsed, aiConfig)
       const videoId     = v.length === 11 ? v : `file-${Date.now()}`
       const finalResult = { ...result, videoId }
       saveResult(finalResult, videoTitle || "匯入字幕", artistName || "自定義")

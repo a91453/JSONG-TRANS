@@ -317,3 +317,85 @@ ${segmentLines}`;
     throw new Error(msg || 'AI 標注失敗，請檢查 API Key 或稍後再試。');
   }
 }
+
+// ── 雙語 SRT 匯入：僅標注振假名，保留使用者提供的翻譯 ─────────────────────
+
+const FURIGANA_ONLY_HINT = `
+你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
+{"items":[{"index":0,"furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
+其中 index 對應輸入的 [索引] 編號（從 0 開始）。
+`;
+
+export async function annotateFuriganaOnlyAction(
+  segments: Array<{ start: number; end: number; text: string; translation: string }>,
+  config?: { provider?: 'google' | 'groq'; apiKey?: string; model?: string }
+) {
+  const provider   = config?.provider  || 'google';
+  const userApiKey = config?.apiKey;
+  if (!userApiKey) throw new Error(`請提供 ${provider === 'google' ? 'Gemini' : 'Groq'} API Key。`);
+
+  const FuriganaOnlySchema = z.object({
+    items: z.array(z.object({
+      index:    z.number(),
+      furigana: z.array(FuriganaItemSchema),
+    })),
+  });
+
+  try {
+    const modelId     = config?.model
+      || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
+    const segmentLines = segments
+      .map((s, i) => `[${i}] ${s.text}`)
+      .join('\n');
+
+    const prompt = `你是一位日語語言學專家。以下是已含翻譯的日文歌詞（僅需標注振假名）：
+
+${segmentLines}
+
+【振假名規則】漢字與活用語尾視為一個 word（去られ→さられ、笑った→わらった），reading 為純平假名。每個漢字都必須有對應項目。`;
+
+    let furiganaItems: { index: number; furigana: { word: string; reading: string }[] }[];
+
+    if (provider === 'groq') {
+      const raw = await groqGenerate(userApiKey, modelId, [
+        { role: 'system', content: '你是日語語言學專家，只回傳 JSON，不輸出任何說明文字。' },
+        { role: 'user',   content: prompt + '\n\n' + FURIGANA_ONLY_HINT },
+      ]);
+      let json: unknown;
+      try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
+      const r = FuriganaOnlySchema.safeParse(json);
+      if (!r.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
+      furiganaItems = r.data.items;
+    } else {
+      const ai = createAi(provider, userApiKey);
+      const { output } = await ai.generate({
+        model:  modelId,
+        output: { schema: FuriganaOnlySchema },
+        prompt,
+      });
+      if (!output?.items) throw new Error('AI 振假名標注失敗');
+      furiganaItems = output.items;
+    }
+
+    const byIndex = new Map(furiganaItems.map(f => [f.index, f.furigana]));
+    const finalSegments = segments.map((s, i) => ({
+      id:          crypto.randomUUID(),
+      start:       s.start,
+      end:         s.end,
+      japanese:    s.text,
+      translation: s.translation,
+      furigana:    byIndex.get(i) ?? [],
+    }));
+
+    return {
+      videoId:  'custom_' + Date.now(),
+      duration: segments[segments.length - 1]?.end || 0,
+      segments: finalSegments,
+      source:   'genkit-ai' as const,
+    };
+  } catch (error: any) {
+    console.error('Error in annotateFuriganaOnlyAction:', error);
+    const msg: string = error.message || '';
+    throw new Error(msg || 'AI 振假名標注失敗，請檢查 API Key 或稍後再試。');
+  }
+}
