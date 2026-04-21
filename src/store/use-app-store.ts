@@ -27,6 +27,9 @@ interface SettingsState {
   geminiModel: string;
   groqApiKey: string;
   groqModel: string;
+  // Cloud Run 轉錄服務（使用者自備資源）
+  cloudRunGroqApiKey: string;
+  cloudRunCookieContent: string;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setLyricsFontSize: (size: number) => void;
   setDefaultAnnotation: (mode: 'furigana' | 'romaji' | 'both' | 'none') => void;
@@ -38,6 +41,8 @@ interface SettingsState {
   setGeminiModel: (model: string) => void;
   setGroqApiKey: (key: string) => void;
   setGroqModel: (model: string) => void;
+  setCloudRunGroqApiKey: (key: string) => void;
+  setCloudRunCookieContent: (content: string) => void;
   resetApiKeys: () => void;
 }
 
@@ -55,6 +60,8 @@ export const useSettingsStore = create<SettingsState>()(
       geminiModel: 'googleai/gemini-2.5-flash',
       groqApiKey: '',
       groqModel: 'openai/llama-3.3-70b-versatile', // mixtral-8x7b-32768 已於 2025 年下架
+      cloudRunGroqApiKey: '',
+      cloudRunCookieContent: '',
       setThemeMode: (themeMode) => set({ themeMode }),
       setLyricsFontSize: (lyricsFontSize) => set({ lyricsFontSize }),
       setDefaultAnnotation: (defaultAnnotation) => set({ defaultAnnotation }),
@@ -66,7 +73,9 @@ export const useSettingsStore = create<SettingsState>()(
       setGeminiModel: (geminiModel) => set({ geminiModel }),
       setGroqApiKey: (groqApiKey) => set({ groqApiKey }),
       setGroqModel: (groqModel) => set({ groqModel }),
-      resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '' }),
+      setCloudRunGroqApiKey: (cloudRunGroqApiKey) => set({ cloudRunGroqApiKey }),
+      setCloudRunCookieContent: (cloudRunCookieContent) => set({ cloudRunCookieContent }),
+      resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '', cloudRunGroqApiKey: '', cloudRunCookieContent: '' }),
     }),
     { name: 'nihongo-settings-storage-v5' }
   )

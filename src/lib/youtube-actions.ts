@@ -98,19 +98,30 @@ async function writeCache(result: SmartSubtitleResult): Promise<void> {
  */
 async function fetchExternalTranscription(
   videoId: string,
-  googleToken?: string
+  googleToken?: string,
+  userGroqApiKey?: string,
+  userCookieContent?: string,
 ): Promise<RawSegment[] | null> {
   const serviceUrl = process.env.SUBTITLE_SERVICE_URL;
   if (!serviceUrl) return null;
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const secret = process.env.SUBTITLE_SERVICE_SECRET;
   if (secret) headers['X-Service-Secret'] = secret;
   if (googleToken) headers['X-Google-Token'] = googleToken;
 
+  const body: Record<string, string> = {
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+  };
+  // 只有非空字串才傳入，避免把空值當有效輸入送給 Cloud Run
+  if (userGroqApiKey)    body.api_key       = userGroqApiKey;
+  if (userCookieContent) body.cookie_content = userCookieContent;
+
   try {
-    const res = await fetch(`${serviceUrl}/api/transcribe?v=${videoId}`, {
+    const res = await fetch(`${serviceUrl}/process`, {
+      method: 'POST',
       headers,
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(180_000),
     });
     if (!res.ok) {
@@ -171,7 +182,9 @@ export async function getSmartSubtitles(
   videoTitle: string = '',
   forceRefresh = false,
   googleToken?: string,
-  groqApiKey?: string
+  groqApiKey?: string,
+  cloudRunGroqApiKey?: string,
+  cloudRunCookieContent?: string,
 ): Promise<SmartSubtitleResult | null> {
   const isYouTube = videoId.length === 11;
 
@@ -185,7 +198,7 @@ export async function getSmartSubtitles(
 
   // ── 2. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
   {
-    const extSegments = await fetchExternalTranscription(videoId, googleToken);
+    const extSegments = await fetchExternalTranscription(videoId, googleToken, cloudRunGroqApiKey, cloudRunCookieContent);
     if (extSegments) {
       const result: SmartSubtitleResult = {
         videoId,

@@ -84,6 +84,7 @@ export default function SettingsPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showGroqKey, setShowGroqKey] = useState(false);
+  const [showCloudRunKey, setShowCloudRunKey] = useState(false);
 
   // ── 手動上傳字幕狀態 ─────────────────────────────────────────────────────
   const [uploadUrl, setUploadUrl] = useState('');
@@ -393,6 +394,119 @@ export default function SettingsPage() {
               <p className="text-[9px] text-muted-foreground leading-relaxed">
                 分析完成後可由歌詞頁頂部的來源標籤（如「人工字幕」「Whisper 聽寫」）確認實際走了哪條路線。
               </p>
+            </CardContent>
+          </Card>
+
+          {/* Cloud Run 轉錄服務 — 使用者自備資源 */}
+          <Card className="rounded-2xl border bg-muted/10">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Rocket size={16} className="text-primary" />
+                <h3 className="text-xs font-bold uppercase tracking-widest">Cloud Run 轉錄服務（自備資源）</h3>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                提供您自己的 Groq API Key 或 YouTube cookies，可避免佔用服務端配額，並繞過地區／年齡限制。
+                填入後僅儲存於本機，不上傳至伺服器日誌。
+              </p>
+
+              {/* Cloud Run 專用 Groq Key */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-600">
+                      <Key size={16} />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">Groq API Key（轉錄用）</Label>
+                      <p className="text-[9px] text-muted-foreground">Cloud Run 用此 key 呼叫 Whisper，不影響 AI 標注配額</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowCloudRunKey(!showCloudRunKey)}>
+                    {showCloudRunKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </Button>
+                </div>
+                <Input
+                  type={showCloudRunKey ? 'text' : 'password'}
+                  placeholder="gsk_...（選填，留空則使用服務端內建 key）"
+                  className="rounded-xl bg-muted/30 border-none text-xs h-11 font-mono"
+                  value={settings.cloudRunGroqApiKey}
+                  onChange={(e) => settings.setCloudRunGroqApiKey(e.target.value)}
+                />
+                {settings.cloudRunGroqApiKey && (
+                  <p className="text-[9px] text-orange-600 font-black flex items-center gap-1">
+                    <CheckCircle2 size={10} /> 轉錄將計入您的 Groq 帳號配額
+                  </p>
+                )}
+              </div>
+
+              {/* Cookie 上傳 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600">
+                      <FileText size={16} />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">YouTube cookies.txt</Label>
+                      <p className="text-[9px] text-muted-foreground">Netscape 格式，可繞過年齡／地區限制</p>
+                    </div>
+                  </div>
+                  <label className="text-[10px] font-bold text-primary flex items-center gap-1 cursor-pointer hover:underline">
+                    <Upload size={11} />
+                    選擇檔案
+                    <input
+                      type="file"
+                      accept=".txt,text/plain"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        if (f.size > 100 * 1024) {
+                          alert('cookies.txt 過大（上限 100KB）');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const text = String(reader.result ?? '');
+                          if (!text.trimStart().startsWith('# Netscape')) {
+                            alert('必須是 Netscape HTTP Cookie File 格式（第一行應為 # Netscape HTTP Cookie File）');
+                            return;
+                          }
+                          settings.setCloudRunCookieContent(text);
+                        };
+                        reader.readAsText(f, 'utf-8');
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+                <Textarea
+                  placeholder={"# Netscape HTTP Cookie File\n# 從瀏覽器 Cookie 匯出工具取得，貼上或選擇檔案"}
+                  value={settings.cloudRunCookieContent}
+                  onChange={(e) => settings.setCloudRunCookieContent(e.target.value)}
+                  className="rounded-xl bg-muted/30 border-none text-[10px] font-mono min-h-[80px] resize-y"
+                />
+                {settings.cloudRunCookieContent ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] text-blue-600 font-black flex items-center gap-1">
+                      <CheckCircle2 size={10} /> cookies 已設定（{(settings.cloudRunCookieContent.length / 1024).toFixed(1)} KB）
+                    </p>
+                    <Button variant="ghost" size="sm" className="h-6 text-[9px] text-destructive px-2"
+                      onClick={() => settings.setCloudRunCookieContent('')}>
+                      清除
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* 隱私提醒 */}
+              <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/60">
+                <p className="text-[9px] text-amber-700 leading-relaxed font-medium">
+                  ⚠ <span className="font-black">隱私提醒：</span>cookies 僅用於本次轉錄請求，不會被記錄於日誌。
+                  建議使用專用的限額 Groq Key，避免提供主帳號 key。
+                  請勿在公用電腦設定 cookies。
+                </p>
+              </div>
             </CardContent>
           </Card>
 

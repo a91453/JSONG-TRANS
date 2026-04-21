@@ -38,11 +38,13 @@ function sseChunk(event: string, data: unknown): Uint8Array {
 export async function POST(req: Request) {
   const {
     videoId,
-    videoTitle    = '',
-    forceRefresh  = false,
+    videoTitle           = '',
+    forceRefresh         = false,
     groqApiKeyForWhisper,
+    cloudRunGroqApiKey,
+    cloudRunCookieContent,
     googleToken,
-    config        = {},
+    config               = {},
   } = await req.json();
 
   const provider: 'google' | 'groq' = config.provider ?? 'google';
@@ -85,7 +87,9 @@ export async function POST(req: Request) {
             subtitleResult = await getSmartSubtitles(
               videoId, videoTitle, forceRefresh,
               googleToken,
-              groqKeyForWhisper ?? undefined
+              groqKeyForWhisper ?? undefined,
+              cloudRunGroqApiKey as string | undefined,
+              cloudRunCookieContent as string | undefined,
             );
           } catch (e: any) {
             if (e.message === 'YOUTUBE_AUTH_REQUIRED' && !googleToken) {
