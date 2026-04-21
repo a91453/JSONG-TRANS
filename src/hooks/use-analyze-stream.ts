@@ -130,8 +130,9 @@ export function useAnalyzeStream() {
       const decoder = new TextDecoder();
       let buffer    = '';
       const allSegs: Segment[] = [];
-      let finalSource   = 'genkit-ai';
-      let finalDuration = 0;
+      let finalSource       = 'genkit-ai';
+      let finalDuration     = 0;
+      let finalExpectedTotal = 0;
       // server-sent error message — thrown after the loop so it escapes inner catch
       let serverError: string | null = null;
 
@@ -177,8 +178,9 @@ export function useAnalyzeStream() {
                   );
 
                 } else if (evt === 'done') {
-                  finalSource   = payload.source;
-                  finalDuration = payload.duration ?? 0;
+                  finalSource        = payload.source;
+                  finalDuration      = payload.duration ?? 0;
+                  finalExpectedTotal = payload.expectedTotal ?? 0;
 
                 } else if (evt === 'error') {
                   // 儲存伺服器錯誤，迴圈結束後再拋出（避免被 inner catch 吞掉）
@@ -214,8 +216,22 @@ export function useAnalyzeStream() {
         segments: sortedSegs,
         source:   finalSource as any,
       };
+
+      // 完整性檢查：若有預期段落數且實際不足 90%，代表部分批次失敗，不儲存
+      const isPartialResult =
+        finalExpectedTotal > 0 &&
+        sortedSegs.length < finalExpectedTotal * 0.9;
+
       setResponse(finalResponse);
-      historyStore.saveResult(finalResponse, title, author);
+      if (isPartialResult) {
+        toast({
+          variant:     'destructive',
+          title:       '字幕不完整，未儲存',
+          description: `僅成功標注 ${sortedSegs.length}/${finalExpectedTotal} 段（部分批次失敗），結果僅供本次瀏覽，請重試以取得完整字幕。`,
+        });
+      } else {
+        historyStore.saveResult(finalResponse, title, author);
+      }
 
       // ── 來源提示 Toast ─────────────────────────────────────────────────
       if (finalSource === 'whisper-groq') {

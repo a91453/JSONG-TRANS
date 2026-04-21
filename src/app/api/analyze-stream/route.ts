@@ -194,9 +194,11 @@ export async function POST(req: Request) {
         }
 
         // ── 4. 完成 ────────────────────────────────────────────────────────
+        // expectedTotal=0 when isFullGenerate (AI 全自動，無原始段落數可比對)
         send('done', {
           source:        expectedSource,
           totalSegments: allAnnotated.length,
+          expectedTotal: rawSegments.length,
           duration:      allAnnotated[allAnnotated.length - 1]?.end ?? 0,
           videoId,
         });

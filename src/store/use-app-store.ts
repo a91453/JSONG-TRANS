@@ -148,7 +148,13 @@ export const useHistoryStore = create<HistoryState>()(
       items: [],
       results: {},
       saveResult: (response, title, artist) => set(state => {
-        const videoId = response.videoId;
+        const videoId  = response.videoId;
+        const existing = state.results[videoId];
+        // 若現有結果比新結果更完整（更多段落），拒絕覆蓋（防止失敗結果覆蓋成功結果）
+        // forceRefresh 路徑會先呼叫 removeByVideoId，使 existing 為 undefined，故不受影響
+        if (existing && existing.segments.length > response.segments.length) {
+          return state;
+        }
         const newMeta: VideoHistoryMeta = {
           id: crypto.randomUUID(),
           videoId,
