@@ -21,7 +21,8 @@ interface SettingsState {
   showFurigana: boolean;
   showRomaji: boolean;
   showKatakanaReading: boolean;
-  maxCharsPerLine: number;   // 0 = 不限制
+  maxCharsPerLine: number;   // 0 = 不限制（standard 模式用）
+  wordCardMode: boolean;     // true = 彩色字卡模式
   loopCount: number;
   autoPlayOnTap: boolean;
   showTranslation: boolean;
@@ -40,6 +41,7 @@ interface SettingsState {
   setShowRomaji: (v: boolean) => void;
   setShowKatakanaReading: (v: boolean) => void;
   setMaxCharsPerLine: (n: number) => void;
+  setWordCardMode: (v: boolean) => void;
   setLoopCount: (count: number) => void;
   setAutoPlayOnTap: (enabled: boolean) => void;
   setShowTranslation: (enabled: boolean) => void;
@@ -62,6 +64,7 @@ export const useSettingsStore = create<SettingsState>()(
       showRomaji: false,
       showKatakanaReading: true,
       maxCharsPerLine: 0,
+      wordCardMode: true,
       loopCount: 3,
       autoPlayOnTap: true,
       showTranslation: true,
@@ -78,6 +81,7 @@ export const useSettingsStore = create<SettingsState>()(
       setShowRomaji: (showRomaji) => set({ showRomaji }),
       setShowKatakanaReading: (showKatakanaReading) => set({ showKatakanaReading }),
       setMaxCharsPerLine: (maxCharsPerLine) => set({ maxCharsPerLine }),
+      setWordCardMode: (wordCardMode) => set({ wordCardMode }),
       setLoopCount: (loopCount) => set({ loopCount }),
       setAutoPlayOnTap: (autoPlayOnTap) => set({ autoPlayOnTap }),
       setShowTranslation: (showTranslation) => set({ showTranslation }),

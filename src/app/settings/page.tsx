@@ -85,6 +85,7 @@ export default function SettingsPage() {
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showGroqKey, setShowGroqKey] = useState(false);
   const [showCloudRunKey, setShowCloudRunKey] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // ── 手動上傳字幕狀態 ─────────────────────────────────────────────────────
   const [uploadUrl, setUploadUrl] = useState('');
@@ -367,6 +368,17 @@ export default function SettingsPage() {
             </TabsContent>
           </Tabs>
 
+          {/* ── 進階設定 收折區 ─────────────────────────────────────────── */}
+          <button
+            onClick={() => setShowAdvanced(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-muted/20 border text-xs font-bold text-muted-foreground hover:bg-muted/40 transition-colors"
+          >
+            <span className="uppercase tracking-widest">進階設定</span>
+            <span className="text-base leading-none">{showAdvanced ? '▲' : '▼'}</span>
+          </button>
+
+          {showAdvanced && <>
+
           {/* 字幕取得管線說明 */}
           <Card className="rounded-2xl border bg-muted/10">
             <CardContent className="p-5 space-y-4">
@@ -627,6 +639,8 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          </>} {/* end showAdvanced */}
         </section>
 
         <section className="space-y-3">
@@ -696,6 +710,18 @@ export default function SettingsPage() {
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1">學習偏好</h2>
           <Card className="rounded-2xl border shadow-sm">
             <CardContent className="p-0 divide-y">
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-600">
+                    <span className="font-bold text-xs">字</span>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-bold">彩色字卡模式</Label>
+                    <p className="text-[9px] text-muted-foreground">每個單字獨立彩色卡片，隨時間軸高亮</p>
+                  </div>
+                </div>
+                <Switch checked={settings.wordCardMode} onCheckedChange={settings.setWordCardMode} />
+              </div>
               <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-600">

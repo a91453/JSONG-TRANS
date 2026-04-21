@@ -72,6 +72,7 @@ function LearnContent() {
   const [showFurigana,        setShowFurigana       ] = useState(settings.showFurigana)
   const [showRomaji,          setShowRomaji         ] = useState(settings.showRomaji)
   const [showKatakanaReading, setShowKatakanaReading] = useState(settings.showKatakanaReading)
+  const [wordCardMode,        setWordCardMode        ] = useState(settings.wordCardMode)
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null)
   
   const [loopingSegmentId, setLoopingSegmentId] = useState<string | null>(null)
@@ -111,7 +112,8 @@ function LearnContent() {
     setShowFurigana(settings.showFurigana)
     setShowRomaji(settings.showRomaji)
     setShowKatakanaReading(settings.showKatakanaReading)
-  }, [settings.showFurigana, settings.showRomaji, settings.showKatakanaReading])
+    setWordCardMode(settings.wordCardMode)
+  }, [settings.showFurigana, settings.showRomaji, settings.showKatakanaReading, settings.wordCardMode])
 
   // streamedSegments grows batch-by-batch during SSE; falls back to response.segments on cache hit
   const segments = streamedSegments.length > 0 ? streamedSegments : (response?.segments ?? [])
@@ -425,6 +427,14 @@ function LearnContent() {
           )}
 
           <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
+            {/* 字卡 / 行列 模式切換 */}
+            <Button
+              variant="ghost" size="sm" aria-pressed={wordCardMode}
+              className={cn("rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
+                wordCardMode ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+              onClick={() => { setWordCardMode(v => !v); if (typeof navigator !== 'undefined') navigator.vibrate?.(5); }}
+            >字卡</Button>
+            <div className="w-px h-4 bg-border shrink-0" />
             {([
               { key: 'furigana', label: '假名',   state: showFurigana,        toggle: () => setShowFurigana(v => !v) },
               { key: 'romaji',   label: '拼音',   state: showRomaji,          toggle: () => setShowRomaji(v => !v) },
@@ -432,17 +442,11 @@ function LearnContent() {
             ] as const).map(({ key, label, state, toggle }) => (
               <Button
                 key={key}
-                variant="ghost"
-                size="sm"
-                aria-pressed={state}
-                className={cn(
-                  "rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
-                  state ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                )}
-                onClick={() => { toggle(); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
-              >
-                {label}
-              </Button>
+                variant="ghost" size="sm" aria-pressed={state}
+                className={cn("rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
+                  state ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                onClick={() => { toggle(); if (typeof navigator !== 'undefined') navigator.vibrate?.(5); }}
+              >{label}</Button>
             ))}
             <div className="w-px h-4 bg-border shrink-0 mx-1" />
             <button
@@ -505,7 +509,11 @@ function LearnContent() {
                       showFurigana={showFurigana}
                       showRomaji={showRomaji}
                       showKatakanaReading={showKatakanaReading}
-                      maxCharsPerLine={settings.maxCharsPerLine}
+                      maxCharsPerLine={wordCardMode ? 0 : settings.maxCharsPerLine}
+                      layout={wordCardMode ? 'wordcard' : 'standard'}
+                      currentTime={currentTime}
+                      segmentStart={seg.start + captionOffset}
+                      segmentEnd={seg.end + captionOffset}
                       fontSize={settings.lyricsFontSize}
                       active={isActive}
                       onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
@@ -550,7 +558,7 @@ function LearnContent() {
           {selectedSegment && (
             <div className="space-y-8 py-6">
               <div className="p-6 bg-muted/30 rounded-[2rem] border border-border">
-                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} maxCharsPerLine={settings.maxCharsPerLine} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
+                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} maxCharsPerLine={wordCardMode ? 0 : settings.maxCharsPerLine} layout={wordCardMode ? 'wordcard' : 'standard'} currentTime={currentTime} segmentStart={selectedSegment.start + captionOffset} segmentEnd={selectedSegment.end + captionOffset} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
