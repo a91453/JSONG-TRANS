@@ -676,7 +676,7 @@ export default function SettingsPage() {
                   <span className="text-xs font-mono font-bold text-muted-foreground">{settings.lyricsFontSize} pt</span>
                 </div>
                 <div className="px-2">
-                  <Slider value={[settings.lyricsFontSize]} min={14} max={32} step={1} onValueChange={(val) => settings.setLyricsFontSize(val[0])} />
+                  <Slider value={[settings.lyricsFontSize]} min={8} max={32} step={1} onValueChange={(val) => settings.setLyricsFontSize(val[0])} />
                 </div>
               </div>
               <div className="p-4 space-y-4">

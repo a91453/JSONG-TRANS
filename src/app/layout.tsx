@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { Navigation } from '@/components/Navigation';
+import { ThemeProvider } from '@/components/ThemeProvider';
 
 export const metadata: Metadata = {
   title: 'NihongoPath - 沉浸式日語學習 (v1.0)',
@@ -32,6 +33,7 @@ export default function RootLayout({
         <main className="flex-1 max-w-4xl mx-auto w-full pb-20 shadow-sm bg-background relative">
           {children}
         </main>
+        <ThemeProvider />
         <Navigation />
         <Toaster />
       </body>
