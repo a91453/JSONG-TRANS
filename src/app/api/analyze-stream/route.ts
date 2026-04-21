@@ -146,12 +146,14 @@ export async function POST(req: Request) {
           }
           send('stage', { text: `並行${taskLabel} ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
 
-          let completed  = 0;
-          let failed     = 0;
-          let nextIdx    = 0;
+          let completed   = 0;
+          let failed      = 0;
+          let nextIdx     = 0;
+          let fatalError: Error | null = null;
 
           async function worker() {
             while (nextIdx < batches.length) {
+              if (fatalError) break;
               const i = nextIdx++;
               try {
                 const runner = hasPreAnnotatedFurigana ? translateBatch : annotateBatch;
@@ -163,13 +165,26 @@ export async function POST(req: Request) {
                 allAnnotated.push(...withIds);
                 send('stage', { text: `已完成 ${++completed} / ${totalBatches} 批` });
               } catch (err: any) {
+                const msg: string = err?.message || '';
+                // 地區封鎖或認證錯誤無法靠重試解決，立刻中止所有 worker
+                if (
+                  msg.includes('location is not supported') ||
+                  msg.includes('INVALID_ARGUMENT') ||
+                  msg.includes('PERMISSION_DENIED') ||
+                  msg.includes('API_KEY_INVALID')
+                ) {
+                  fatalError = err;
+                  break;
+                }
                 failed++;
-                send('stage', { text: `第 ${i + 1} 批失敗：${err?.message || '未知錯誤'}` });
+                send('stage', { text: `第 ${i + 1} 批失敗：${msg || '未知錯誤'}` });
               }
             }
           }
 
           await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
+
+          if (fatalError) throw fatalError;
 
           if (allAnnotated.length === 0) {
             throw new Error('所有批次標注均失敗，請檢查 API Key 或稍後再試。');
