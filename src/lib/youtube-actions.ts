@@ -4,7 +4,7 @@
  *
  * SubtitleManager（getSmartSubtitles）是所有字幕請求的「快取守門員」：
  *
- *   快取（Firestore）→ Cloud Run → YouTube 官方/自動字幕 → Groq Whisper → LrcLib → null
+ *   快取（Firestore）→ YouTube 官方/自動字幕 → Cloud Run → Groq Whisper → LrcLib → null
  *
  * 快取命中後直接回傳，無需再次呼叫外部 API，大幅降低延遲與費用。
  * Firestore 未配置時（db = null）快取層自動跳過，功能不受影響。
@@ -196,21 +196,7 @@ export async function getSmartSubtitles(
     if (cached) return cached;
   }
 
-  // ── 2. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
-  {
-    const extSegments = await fetchExternalTranscription(videoId, googleToken, cloudRunGroqApiKey, cloudRunCookieContent);
-    if (extSegments) {
-      const result: SmartSubtitleResult = {
-        videoId,
-        segments: extSegments,
-        source: 'external',
-      };
-      await writeCache(result);
-      return result;
-    }
-  }
-
-  // ── 3. YouTube 官方/自動字幕（時間軸 100% 精準，免 AI 成本）──────────
+  // ── 2. YouTube 官方/自動字幕（時間軸 100% 精準，免 AI 成本，優先使用）──
   if (isYouTube) {
     const captionResult = await fetchYouTubeCaptions(videoId).catch(() => null);
     if (captionResult && captionResult.captions.length >= 3) {
@@ -218,6 +204,20 @@ export async function getSmartSubtitles(
         videoId,
         segments: captionResult.captions.map(c => ({ start: c.start, end: c.end, text: c.text })),
         source: captionResult.isAuto ? 'youtube-auto' : 'youtube-official',
+      };
+      await writeCache(result);
+      return result;
+    }
+  }
+
+  // ── 3. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
+  {
+    const extSegments = await fetchExternalTranscription(videoId, googleToken, cloudRunGroqApiKey, cloudRunCookieContent);
+    if (extSegments) {
+      const result: SmartSubtitleResult = {
+        videoId,
+        segments: extSegments,
+        source: 'external',
       };
       await writeCache(result);
       return result;
