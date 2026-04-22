@@ -411,6 +411,17 @@ export default function HomePage() {
           </div>
         </section>
       )}
+
+      {/* Legal footer — required for Google OAuth consent screen verification */}
+      <div className="mt-8 pb-6 text-center flex items-center justify-center gap-4">
+        <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+          隱私權政策
+        </Link>
+        <span className="text-muted-foreground/30">·</span>
+        <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+          服務條款
+        </Link>
+      </div>
     </div>
   );
 }
