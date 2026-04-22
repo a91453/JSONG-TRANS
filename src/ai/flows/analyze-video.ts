@@ -181,7 +181,7 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
       : null;
 
     // ── 步驟 2：決定來源 ─────────────────────────────────────────────────
-    type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
+    type Source = 'lrclib' | 'youtube-official' | 'youtube-auto' | 'external' | 'manual' | 'whisper-groq' | 'genkit-ai';
     let expectedSource: Source;
     let prompt: string;
 
@@ -189,13 +189,13 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
       // SmartSubtitles 成功（含 Whisper、YouTube、LrcLib、Cloud Run）
       const srcMap: Record<string, Source> = {
         'whisper-groq':      'whisper-groq',
-        'youtube-official':  'server-sub',
-        'youtube-auto':      'server-sub-auto',
+        'youtube-official':  'youtube-official',
+        'youtube-auto':      'youtube-auto',
         'lrclib':            'lrclib',
-        'external':          'server-sub',
-        'manual':            'server-sub',
+        'external':          'external',
+        'manual':            'manual',
       };
-      expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
+      expectedSource = srcMap[subtitleResult.source] ?? 'youtube-official';
 
       const sourceLabel = subtitleResult.source === 'whisper-groq'    ? 'Whisper 語音聽寫'
                         : subtitleResult.source === 'lrclib'           ? 'LrcLib 同步'

@@ -158,7 +158,7 @@ export const useDictionaryStore = create<DictionaryState>()(
         set({ entries: [newEntry, ...entries] });
       },
       addAllFromSegment: (segment, videoId, songTitle) => {
-        segment.furigana.forEach(item => {
+        (segment.furigana ?? []).forEach(item => {
           get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
         });
       },

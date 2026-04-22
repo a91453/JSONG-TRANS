@@ -539,7 +539,7 @@ function LearnContent() {
                   <div className="flex flex-col gap-4">
                     <FuriganaText
                       text={seg.japanese}
-                      furiganaItems={seg.furigana}
+                      furiganaItems={seg.furigana ?? []}
                       showFurigana={showFurigana}
                       showRomaji={showRomaji}
                       showKatakanaReading={showKatakanaReading}
@@ -592,7 +592,7 @@ function LearnContent() {
           {selectedSegment && (
             <div className="space-y-8 py-6">
               <div className="p-6 bg-muted/30 rounded-[2rem] border border-border">
-                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} maxCharsPerLine={wordCardMode ? 0 : settings.maxCharsPerLine} layout={wordCardMode ? 'wordcard' : 'standard'} currentTime={currentTime} segmentStart={selectedSegment.start + captionOffset} segmentEnd={selectedSegment.end + captionOffset} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
+                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana ?? []} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} maxCharsPerLine={wordCardMode ? 0 : settings.maxCharsPerLine} layout={wordCardMode ? 'wordcard' : 'standard'} currentTime={currentTime} segmentStart={selectedSegment.start + captionOffset} segmentEnd={selectedSegment.end + captionOffset} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
@@ -600,7 +600,7 @@ function LearnContent() {
                   <Button variant="link" size="sm" className="h-auto p-0 text-primary font-black text-[10px]" onClick={() => { addAllFromSegment(selectedSegment, v, videoTitle || "影片課程"); toast({ title: "已全部加入字典" }); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20); }}>全部加入</Button>
                 </div>
                 <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 no-scrollbar">
-                  {selectedSegment.furigana.map((item, fIdx) => {
+                  {(selectedSegment.furigana ?? []).map((item, fIdx) => {
                     const saved = dictContains(item.word, item.reading)
                     return (
                       <div key={fIdx} className="flex items-center justify-between p-5 bg-card rounded-2xl border hover:border-primary/30 transition-all">

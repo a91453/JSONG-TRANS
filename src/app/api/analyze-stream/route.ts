@@ -74,7 +74,7 @@ export async function POST(req: Request) {
 
         send('stage', { text: '正在比對 YouTube 字幕…' });
 
-        type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
+        type Source = 'lrclib' | 'youtube-official' | 'youtube-auto' | 'external' | 'manual' | 'whisper-groq' | 'genkit-ai';
         let subtitleResult  = null;
         let expectedSource: Source;
         let rawSegments: RawSeg[]  = [];
@@ -104,13 +104,13 @@ export async function POST(req: Request) {
         if (subtitleResult && subtitleResult.segments.length >= 3) {
           const srcMap: Record<string, Source> = {
             'whisper-groq':     'whisper-groq',
-            'youtube-official': 'server-sub',
-            'youtube-auto':     'server-sub-auto',
+            'youtube-official': 'youtube-official',
+            'youtube-auto':     'youtube-auto',
             'lrclib':           'lrclib',
-            'external':         'server-sub',
-            'manual':           'server-sub',
+            'external':         'external',
+            'manual':           'manual',
           };
-          expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
+          expectedSource = srcMap[subtitleResult.source] ?? 'youtube-official';
           rawSegments    = subtitleResult.segments;
           sourceLabel    = subtitleResult.source === 'whisper-groq' ? 'Whisper 語音聽寫'
                          : subtitleResult.source === 'lrclib'       ? 'LrcLib 同步'
@@ -137,10 +137,11 @@ export async function POST(req: Request) {
           allAnnotated.push(...withIds);
         } else {
           // 若來源已預先標注振假名（例如 Cloud Run 轉錄），只需 AI 翻譯
+          // 取前 5 段非空段落投票，多數有 furigana 才視為預先標注（避免空白 intro 誤判）
+          const sampleSegs = rawSegments.filter(s => s.text?.trim()).slice(0, 5);
           const hasPreAnnotatedFurigana =
-            rawSegments.length > 0 &&
-            Array.isArray(rawSegments[0].furigana) &&
-            rawSegments[0].furigana.length > 0;
+            sampleSegs.length > 0 &&
+            sampleSegs.filter(s => Array.isArray(s.furigana) && s.furigana.length > 0).length > sampleSegs.length / 2;
 
           const batches      = chunk(rawSegments, BATCH_SIZE);
           const totalBatches = batches.length;
