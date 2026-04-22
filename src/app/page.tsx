@@ -208,23 +208,12 @@ export default function HomePage() {
           </div>
         </div>
         
-        {/* API Key 狀態提示區塊 - 改進引導視覺 */}
+        {/* API Key 狀態提示 */}
         {!hasApiKey && (
-          <div className="w-full bg-red-50 border-2 border-red-200 rounded-[2.5rem] p-8 flex flex-col items-center text-center gap-6 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700">
-            <div className="w-20 h-20 rounded-3xl bg-white flex items-center justify-center shadow-xl border-4 border-red-50">
-              <AlertTriangle size={48} className="text-red-500 animate-bounce" />
-            </div>
-            <div className="space-y-2">
-              <p className="text-xl font-black text-red-900 uppercase tracking-tight">AI 功能尚未啟動</p>
-              <p className="text-sm text-red-700 font-bold opacity-80 leading-relaxed max-w-xs">
-                我們需要您的 API Key 才能進行日文標註與翻譯。請點擊下方按鈕前往設定。
-              </p>
-            </div>
-            <Link href="/settings" className="w-full">
-              <Button size="lg" variant="destructive" className="w-full rounded-[1.5rem] h-16 px-8 text-base font-black uppercase tracking-widest shadow-2xl hover:scale-[1.02] transition-all">
-                <Settings className="mr-3" size={20} /> 立即設定 API Key
-              </Button>
-            </Link>
+          <div className="flex items-center gap-2.5 px-4 py-2.5 bg-destructive/8 border border-destructive/20 rounded-xl">
+            <AlertTriangle size={13} className="text-destructive shrink-0" />
+            <span className="text-xs font-bold text-destructive flex-1">AI 標注功能需設定 API Key</span>
+            <Link href="/settings" className="text-xs font-black text-destructive underline underline-offset-2 shrink-0">前往設定</Link>
           </div>
         )}
 
@@ -238,6 +227,20 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {/* App description — required for Google OAuth consent screen verification */}
+      <section className="p-4 bg-muted/30 rounded-2xl border border-border/40 space-y-2 text-xs text-muted-foreground leading-relaxed">
+        <p>
+          <span className="font-black text-foreground">NihongoPath</span> 是沉浸式日語學習工具，
+          透過 YouTube 音樂影片提供 Furigana 標注、羅馬拼音、中文翻譯與 AI 文法解說。
+        </p>
+        <p>
+          選擇性的 <span className="font-semibold text-foreground">Google 登入</span>僅用於取得
+          <code className="mx-1 px-1 py-0.5 rounded bg-muted font-mono text-[10px]">youtube.readonly</code>
+          授權，讓本服務能存取受限影片的字幕，不會讀取其他 Google 帳號資料。詳見
+          <Link href="/privacy" className="ml-1 text-primary font-semibold hover:underline">隱私權政策</Link>。
+        </p>
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] px-1">快速開始</h2>
