@@ -49,6 +49,18 @@ function isRateLimitError(err: any): boolean {
   );
 }
 
+function is503Error(err: any): boolean {
+  const msg: string = err?.message || '';
+  const code: number = err?.code || 0;
+  return (
+    code === 503 ||
+    msg.includes('503') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('Service Unavailable') ||
+    msg.includes('high demand')
+  );
+}
+
 /** 從 Google 錯誤訊息中解析建議等待時間（例：「Please retry in 19.1s」→ 20000ms）。 */
 function parseRetryAfterMs(err: any): number {
   const msg: string = err?.message || err?.originalMessage || '';
@@ -65,12 +77,18 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
     try {
       return await fn();
     } catch (err: any) {
-      if (isRateLimitError(err) && attempt < maxRetries) {
-        // Cap at 8s so we don't blow Vercel's 60s limit across multiple batches
-        const suggested = parseRetryAfterMs(err);
-        const waitMs    = Math.min(suggested, 8_000);
-        await new Promise(r => setTimeout(r, waitMs));
-        continue;
+      if (attempt < maxRetries) {
+        if (isRateLimitError(err)) {
+          // Cap at 8s so we don't blow Vercel's 60s limit across multiple batches
+          const suggested = parseRetryAfterMs(err);
+          const waitMs    = Math.min(suggested, 8_000);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        if (is503Error(err)) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 3_000));
+          continue;
+        }
       }
       throw err;
     }

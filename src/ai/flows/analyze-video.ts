@@ -296,7 +296,7 @@ ${segmentLines}`;
       finalSegments = parseGroqAnnotated(raw);
     } else {
       const ai = createAi(provider, userApiKey);
-      const { output } = await ai.generate({
+      const { output } = await generateWithRetry(ai, {
         model: modelId,
         output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
         prompt: annotationPrompt,
@@ -314,6 +314,9 @@ ${segmentLines}`;
   } catch (error: any) {
     console.error('Error in annotateSegmentsAction:', error);
     const msg: string = error.message || '';
+    const code: number = error.code || 0;
+    if (is503(msg, code)) throw new Error('AI 服務目前流量過高，請稍候幾秒後重試。');
+    if (msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED')) throw new Error('API 配額已滿，請稍候 30 秒再試。');
     throw new Error(msg || 'AI 標注失敗，請檢查 API Key 或稍後再試。');
   }
 }
@@ -368,7 +371,7 @@ ${segmentLines}
       furiganaItems = r.data.items;
     } else {
       const ai = createAi(provider, userApiKey);
-      const { output } = await ai.generate({
+      const { output } = await generateWithRetry(ai, {
         model:  modelId,
         output: { schema: FuriganaOnlySchema },
         prompt,
@@ -396,6 +399,9 @@ ${segmentLines}
   } catch (error: any) {
     console.error('Error in annotateFuriganaOnlyAction:', error);
     const msg: string = error.message || '';
+    const code: number = error.code || 0;
+    if (is503(msg, code)) throw new Error('AI 服務目前流量過高，請稍候幾秒後重試。');
+    if (msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED')) throw new Error('API 配額已滿，請稍候 30 秒再試。');
     throw new Error(msg || 'AI 振假名標注失敗，請檢查 API Key 或稍後再試。');
   }
 }
