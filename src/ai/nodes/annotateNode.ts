@@ -104,15 +104,11 @@ function toTimestamp(sec: number): string {
 
 // ── Groq JSON hints（Groq 不支援 Genkit native structured output）────────
 
-const ANNOTATED_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const ANNOTATED_HINT = `JSON only:
+{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
-const SEGMENTS_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"segments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const SEGMENTS_HINT = `JSON only:
+{"segments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
 // ── 標注批次（有字幕來源時使用）──────────────────────────────────────────
 
@@ -171,11 +167,8 @@ ${cfg.translationRules}`;
 
 // ── 僅翻譯批次（已有預標注振假名時使用，省去一次標注 AI 呼叫）────────────
 
-const TRANSLATIONS_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"translations":[{"index":0,"translation":"繁體中文翻譯"}]}
-其中 index 必須對應輸入的 [索引] 編號（從 0 開始）。
-`;
+const TRANSLATIONS_HINT = `JSON only（index對應輸入索引）:
+{"translations":[{"index":0,"translation":"翻譯"}]}`;
 
 const TranslationsSchema = z.object({
   translations: z.array(z.object({
@@ -198,7 +191,7 @@ export async function translateBatch(
 ): Promise<Segment[]> {
   const cfg   = await getPromptConfig();
   const lines = batch
-    .map((c, i) => `[${i}] [${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
+    .map((c, i) => `[${i}] ${c.text}`)
     .join('\n');
 
   const prompt = `你是一位日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞片段（已含振假名，僅需翻譯）：

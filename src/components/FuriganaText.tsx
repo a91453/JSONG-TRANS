@@ -134,7 +134,10 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
   // ── 1. Build raw token list (annotated words + unannotated fragments) ──────
   const rawTokens = useMemo((): FuriToken[] => {
     let parts: FuriToken[] = [{ text, isAnnotated: false }];
-    const sorted = [...furiganaItems].sort((a, b) => b.word.length - a.word.length);
+    // Drop items where word or reading is missing/empty — AI occasionally omits reading
+    const sorted = [...furiganaItems]
+      .filter(item => item.word && item.reading)
+      .sort((a, b) => b.word.length - a.word.length);
     sorted.forEach(item => {
       const next: FuriToken[] = [];
       parts.forEach(part => {

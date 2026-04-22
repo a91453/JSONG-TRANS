@@ -83,15 +83,11 @@ async function generateWithRetry(
 }
 
 // ── JSON hints for Groq structured output ───────────────────────────────────
-const SEGMENTS_JSON_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"segments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const SEGMENTS_JSON_HINT = `JSON only:
+{"segments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
-const ANNOTATED_JSON_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const ANNOTATED_JSON_HINT = `JSON only:
+{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
 function parseGroqSegments(raw: string): z.infer<typeof SegmentSchema>[] {
   let json: any;
@@ -119,35 +115,19 @@ function buildAnnotationPrompt(
     .map(c => `[${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
     .join('\n');
 
-  return `你是一位日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞：
+  return `你是日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞：
 
 ${captionLines}
 
-請嚴格按照時間戳與文字，為每一段進行以下處理：
-
-【振假名標注規則】
-1. 漢字及其連動的活用語尾必須視為一個「單一 word」：
-   - 正確：word:"去られ", reading:"さられ"
-   - 正確：word:"笑った", reading:"わらった"
-   - 嚴禁拆分（不可將"去"與"られ"分開）。
-2. 日文原文中每一個漢字都必須在 furigana 陣列中有對應項目。
-3. reading 必須是純平假名。
-
-【翻譯規則】
-- 繁體中文翻譯，保持詩意與語境。
-- 保留原始 start/end 時間戳，id 填入空字串。`;
+振假名規則：①漢字+活用語尾算一個word（去られ→さられ、笑った→わらった）②原文每個漢字（含時・人・日・年・事・気等）必須有furigana項目③reading純平假名
+翻譯規則：繁體中文，保詩意，id填空字串，保留start/end`;
 }
 
 function buildFullGeneratePrompt(videoId: string, videoTitle: string): string {
-  return `你是一位日語語言學專家。請解析 YouTube 影片 ID: ${videoId}（標題：${videoTitle}）的完整歌詞內容。
+  return `你是日語語言學專家。請生成 YouTube ID:${videoId}（${videoTitle}）的完整歌詞逐段字幕。
 
-請生成逐字幕，每段包含開始/結束時間（秒）、日文原文、振假名、繁體中文翻譯。
-
-【振假名標注規則】
-1. 漢字與活用語尾視為一個 word（去られ→さられ、笑った→わらった）。
-2. 每個漢字都必須有對應的 furigana 項目。
-3. reading 為純平假名。
-4. id 欄位填入空字串。`;
+振假名規則：①漢字+活用語尾算一個word（去られ→さられ、笑った→わらった）②每個漢字（含時・人・日・年・事・気等）必須有furigana項目③reading純平假名④id填空字串
+翻譯規則：繁體中文，保詩意`;
 }
 
 // ── 主流程 ───────────────────────────────────────────────────────────────────
@@ -323,11 +303,8 @@ ${segmentLines}`;
 
 // ── 雙語 SRT 匯入：僅標注振假名，保留使用者提供的翻譯 ─────────────────────
 
-const FURIGANA_ONLY_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"items":[{"index":0,"furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-其中 index 對應輸入的 [索引] 編號（從 0 開始）。
-`;
+const FURIGANA_ONLY_HINT = `JSON only（index對應輸入索引）:
+{"items":[{"index":0,"furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
 export async function annotateFuriganaOnlyAction(
   segments: Array<{ start: number; end: number; text: string; translation: string }>,

@@ -20,19 +20,11 @@ export interface PromptConfig {
 }
 
 const DEFAULTS: PromptConfig = {
-  annotationRules: `【振假名標注規則】
-1. 漢字及其連動的活用語尾必須視為一個「單一 word」：
-   - 正確：word:"去られ", reading:"さられ"
-   - 正確：word:"笑った", reading:"わらった"
-   - 嚴禁拆分（不可將"去"與"られ"分開）。
-2. 日文原文中每一個漢字都必須在 furigana 陣列中有對應項目。
-3. reading 必須是純平假名。`,
+  annotationRules: `振假名規則：①漢字+活用語尾算一個word（去られ→さられ、笑った→わらった）②原文每個漢字（含時・人・日・年・事・気等常用字）都必須有furigana項目，不得遺漏③reading填純平假名`,
 
-  translationRules: `【翻譯規則】
-- 繁體中文翻譯，保持詩意與語境。
-- 保留原始 start/end 時間戳，id 填入空字串。`,
+  translationRules: `翻譯規則：繁體中文，保詩意，id填空字串，保留start/end`,
 
-  systemMessage: `你是日語語言學專家，只回傳 JSON，不輸出任何說明文字。`,
+  systemMessage: `你是日語語言學專家，只回傳JSON，不輸出說明文字。`,
 };
 
 // ── 記憶體快取（Serverless 容器重啟前有效）──────────────────────────────
