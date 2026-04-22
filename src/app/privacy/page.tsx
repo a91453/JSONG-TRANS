@@ -218,9 +218,13 @@ export default function PrivacyPage() {
       </div>
 
       {/* Footer */}
-      <div className="mt-12 pt-6 border-t border-border text-center">
+      <div className="mt-12 pt-6 border-t border-border text-center flex items-center justify-center gap-4">
         <Link href="/" className="text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">
           返回首頁
+        </Link>
+        <span className="text-muted-foreground/50">·</span>
+        <Link href="/terms" className="text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">
+          服務條款
         </Link>
       </div>
     </div>

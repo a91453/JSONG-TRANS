@@ -808,10 +808,14 @@ export default function SettingsPage() {
         </section>
       </div>
 
-      {/* Privacy policy link */}
-      <div className="mt-6 pb-4 text-center">
+      {/* Legal links */}
+      <div className="mt-6 pb-4 text-center flex items-center justify-center gap-4">
         <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
           隱私權政策
+        </Link>
+        <span className="text-muted-foreground/50">·</span>
+        <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+          服務條款
         </Link>
       </div>
     </div>
