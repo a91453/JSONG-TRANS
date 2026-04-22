@@ -99,8 +99,9 @@ function LearnContent() {
   } = useAnalyzeStream()
 
   const isValidVideoId = v && (v.length === 11 || v.startsWith('custom_') || v.startsWith('file-'))
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const userScrolledAtRef = useRef<number>(0)
+  const scrollContainerRef  = useRef<HTMLDivElement>(null)
+  const userScrolledAtRef   = useRef<number>(0)
+  const lastAutoScrollAtRef = useRef<number>(0)
 
   /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 3s after */
   useEffect(() => {
@@ -115,26 +116,35 @@ function LearnContent() {
     };
   }, [response]);
 
-  /** Smoothly center `segmentId` in the scroll container only if it's off-screen. */
+  /**
+   * Scroll active segment into view:
+   * - Position it at ~30% from the top (not centered) so upcoming lyrics remain visible below.
+   * - Cooldown of 700ms between auto-scrolls prevents double-scroll during smooth animation.
+   * - Skipped entirely for 3s after a manual user scroll.
+   */
   const scrollActiveIntoView = (segmentId: string) => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const el = document.getElementById(`segment-${segmentId}`);
     if (!el) return;
-    // Skip if user scrolled manually in the last 3s
+    // Respect manual scroll cooldown
     if (Date.now() - userScrolledAtRef.current < 3000) return;
+    // Prevent double-scroll while smooth animation is still running
+    if (Date.now() - lastAutoScrollAtRef.current < 700) return;
     const eTop    = el.offsetTop;
     const eHeight = el.offsetHeight;
     const cHeight = container.clientHeight;
     const cTop    = container.scrollTop;
-    const margin  = Math.min(120, cHeight * 0.25);
-    // Only scroll if element is outside the "visible safe zone"
-    if (eTop < cTop + margin || eTop + eHeight > cTop + cHeight - margin) {
-      container.scrollTo({
-        top: eTop - cHeight / 2 + eHeight / 2,
-        behavior: 'smooth',
-      });
-    }
+    // Safe zone: top 20% to bottom 65% — within this range, don't scroll
+    const safeTop    = cTop + cHeight * 0.20;
+    const safeBottom = cTop + cHeight * 0.65;
+    if (eTop >= safeTop && eTop + eHeight <= safeBottom) return;
+    // Target: active segment top sits at 28% from container top
+    lastAutoScrollAtRef.current = Date.now();
+    container.scrollTo({
+      top: eTop - cHeight * 0.28,
+      behavior: 'smooth',
+    });
   };
 
   useEffect(() => {
