@@ -100,6 +100,42 @@ function LearnContent() {
 
   const isValidVideoId = v && (v.length === 11 || v.startsWith('custom_') || v.startsWith('file-'))
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const userScrolledAtRef = useRef<number>(0)
+
+  /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 3s after */
+  useEffect(() => {
+    const c = scrollContainerRef.current;
+    if (!c) return;
+    const mark = () => { userScrolledAtRef.current = Date.now(); };
+    c.addEventListener('wheel',     mark, { passive: true });
+    c.addEventListener('touchmove', mark, { passive: true });
+    return () => {
+      c.removeEventListener('wheel',     mark);
+      c.removeEventListener('touchmove', mark);
+    };
+  }, [response]);
+
+  /** Smoothly center `segmentId` in the scroll container only if it's off-screen. */
+  const scrollActiveIntoView = (segmentId: string) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const el = document.getElementById(`segment-${segmentId}`);
+    if (!el) return;
+    // Skip if user scrolled manually in the last 3s
+    if (Date.now() - userScrolledAtRef.current < 3000) return;
+    const eTop    = el.offsetTop;
+    const eHeight = el.offsetHeight;
+    const cHeight = container.clientHeight;
+    const cTop    = container.scrollTop;
+    const margin  = Math.min(120, cHeight * 0.25);
+    // Only scroll if element is outside the "visible safe zone"
+    if (eTop < cTop + margin || eTop + eHeight > cTop + cHeight - margin) {
+      container.scrollTo({
+        top: eTop - cHeight / 2 + eHeight / 2,
+        behavior: 'smooth',
+      });
+    }
+  };
 
   useEffect(() => {
     // isLoading 防護：避免 setResponse(null) 觸發重複呼叫
@@ -137,10 +173,7 @@ function LearnContent() {
         const active = segments.find(s => time >= s.start + captionOffset && time < s.end + captionOffset)
         if (active && active.id !== activeSegmentId) {
           setActiveSegmentId(active.id)
-          if (!isPinned) {
-            const el = document.getElementById(`segment-${active.id}`)
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
+          if (!isPinned) scrollActiveIntoView(active.id)
         }
 
         if (loopingSegmentId) {
@@ -157,10 +190,11 @@ function LearnContent() {
             }
           }
         } else if (isShadowing) {
-          const currentSeg = segments.find(s => time >= s.end + captionOffset - 0.1 && time <= s.end + captionOffset + 0.1)
-          if (currentSeg) {
-            player.pauseVideo()
-          }
+          // Pause when any segment's end boundary is crossed (same tolerance as loop)
+          const endedSeg = segments.find(s =>
+            time >= s.end + captionOffset - 0.05 && time < s.end + captionOffset + 0.15
+          )
+          if (endedSeg) player.pauseVideo()
         }
       }, 100) 
     }
@@ -484,7 +518,7 @@ function LearnContent() {
         </div>
 
         {/* ── Right panel: lyrics scroll area ────────────────────────── */}
-        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 md:px-6 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 md:px-6 no-scrollbar bg-gradient-to-b from-background to-muted/5">
           <div className="py-8 space-y-4 md:space-y-6 pb-16">
             {segments.map((seg, idx) => {
               const isActive = activeSegmentId === seg.id
