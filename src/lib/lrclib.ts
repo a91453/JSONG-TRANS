@@ -80,6 +80,27 @@ function parseVideoTitle(title: string): { songTitle: string; artist: string } {
   return { songTitle: clean, artist: '' };
 }
 
+/** 過濾 LRC 檔開頭常見的製作人標注行（作詞／作曲／編曲等） */
+const CREDIT_RE = /作詞|作曲|編曲|補曲|ボーカル|vocal|arrange|lyric|music by|composed/i;
+
+function filterCreditLines(segments: LrcSegment[]): LrcSegment[] {
+  return segments.filter(s => !CREDIT_RE.test(s.text));
+}
+
+/**
+ * 計算搜尋詞與曲目標題／歌手的簡單相似度，
+ * 避免 LrcLib 回傳完全不相關的曲目（常見誤配：vocaloid 預設結果）。
+ */
+function isTitleRelevant(query: string, trackName: string, artistName: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^぀-鿿一-鿿\w]/g, ' ').trim();
+  const q = norm(query);
+  const t = norm(trackName);
+  const a = norm(artistName);
+  // 任一方向包含對方的 4 字以上片段即視為相關
+  const words = q.split(/\s+/).filter(w => w.length >= 3);
+  return words.some(w => t.includes(w) || a.includes(w));
+}
+
 /**
  * 搜尋 LrcLib 取得同步歌詞。
  * 回傳 null 表示找不到，或找到但無同步歌詞。
@@ -111,14 +132,19 @@ export async function searchLrcLib(
       const list: LrcLibTrack[] = await res.json();
       if (!Array.isArray(list) || list.length === 0) continue;
 
-      // 優先選擇有同步歌詞且非純音樂的曲目
-      const candidates = list.filter(t => !t.instrumental && t.syncedLyrics);
-      const track = candidates[0] ?? list.find(t => !t.instrumental) ?? list[0];
+      // 優先選擇有同步歌詞且非純音樂、且標題與搜尋詞相關的曲目
+      const candidates = list.filter(t =>
+        !t.instrumental && t.syncedLyrics && isTitleRelevant(q, t.trackName, t.artistName)
+      );
+      // 相關性過濾後若無結果，退而求其次取第一筆有歌詞的曲目
+      const track = candidates[0]
+        ?? list.find(t => !t.instrumental && t.syncedLyrics)
+        ?? null;
 
       if (!track || track.instrumental) continue;
 
       if (track.syncedLyrics) {
-        const segments = parseLRC(track.syncedLyrics, track.duration);
+        const segments = filterCreditLines(parseLRC(track.syncedLyrics, track.duration));
         if (segments.length >= 3) {
           console.log(`LrcLib hit: "${track.artistName} - ${track.trackName}" (${segments.length} lines)`);
           return { track, segments };
