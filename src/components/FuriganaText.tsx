@@ -42,17 +42,23 @@ const SMALL_KANA   = /^[ぁぃぅぇぉゃゅょゎァィゥェォャュョヮ]/
 const CJK_RE       = /[一-鿿㐀-䶿]/;
 
 function isPureKatakana(text: string): boolean {
-  return /^[゠-ヿー・　\s]+$/.test(text);
+  // Must contain at least one actual katakana character, and no other scripts
+  // (spacing/middle-dot allowed but not sufficient alone).
+  return /[゠-ヿ]/.test(text) && /^[゠-ヿー・　\s]+$/.test(text);
 }
 
 /**
  * Split an unannotated fragment for wordcard mode:
- * - Short pure-kana fragments (≤4 chars) stay as one pill.
+ * - Very short fragments (≤2 chars) stay as one pill regardless of script.
+ * - Short pure-kana fragments (≤4 chars) also stay as one pill.
  * - Longer or mixed kana+kanji fragments are split at character boundaries,
  *   merging compound kana pairs (e.g. じゃ, きゅ) into a single unit.
  */
 function splitUnannotatedForWordcard(text: string): FuriToken[] {
   if (!text) return [];
+  if (text.length <= 2) {
+    return [{ text, isAnnotated: false }];
+  }
   if (text.length <= 4 && !CJK_RE.test(text)) {
     return [{ text, isAnnotated: false }];
   }
