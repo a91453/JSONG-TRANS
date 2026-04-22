@@ -73,7 +73,7 @@ async function generateWithRetry(
       return await ai.generate(options);
     } catch (err: any) {
       if (is503(err.message || '', err.code) && attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, (attempt + 1) * 4000));
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
         continue;
       }
       throw err;

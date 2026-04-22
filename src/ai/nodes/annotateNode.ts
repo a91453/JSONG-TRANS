@@ -86,7 +86,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
           continue;
         }
         if (is503Error(err)) {
-          await new Promise(r => setTimeout(r, (attempt + 1) * 3_000));
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2_000));
           continue;
         }
       }
