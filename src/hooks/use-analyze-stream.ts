@@ -12,7 +12,7 @@
  *   4. 使用者跳過 → dismissGoogleAuth() 關閉 Modal，改走一般 analyzeVideoAction 路徑
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { AnalyzeResponse, Segment } from '@/types';
 import { useHistoryStore, useSettingsStore } from '@/store/use-app-store';
 import { fetchYouTubeInfo } from '@/lib/youtube';
@@ -34,10 +34,13 @@ export function useAnalyzeStream() {
   const router           = useRouter();
   const historyStore     = useHistoryStore();
   const settings         = useSettingsStore();
-  const isLoadingRef       = useRef(false);
+  const isLoadingRef         = useRef(false);
   // Ref 版本的 needGoogleAuth，供 useCallback 內的 async 閉包讀取（避免 stale state）
-  const needGoogleAuthRef  = useRef(false);
+  const needGoogleAuthRef    = useRef(false);
+  const abortControllerRef   = useRef<AbortController | null>(null);
   const { signIn, getValidToken, isSigningIn } = useGoogleAuth();
+
+  useEffect(() => () => { abortControllerRef.current?.abort(); }, []);
 
   // ── 核心分析函式 ────────────────────────────────────────────────────────────
 
@@ -68,6 +71,10 @@ export function useAnalyzeStream() {
       router.push('/settings');
       return;
     }
+
+    abortControllerRef.current?.abort();
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
 
     setIsLoading(true);
     isLoadingRef.current    = true;
@@ -110,12 +117,15 @@ export function useAnalyzeStream() {
       // ── SSE 串流 ──────────────────────────────────────────────────────
       const res = await fetch('/api/analyze-stream', {
         method:  'POST',
+        signal:  ac.signal,
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           videoId,
           videoTitle:   title,
           forceRefresh,
-          groqApiKeyForWhisper: settings.groqApiKey || undefined,
+          groqApiKeyForWhisper:    settings.groqApiKey || undefined,
+          cloudRunGroqApiKey:      settings.cloudRunGroqApiKey || undefined,
+          cloudRunCookieContent:   settings.cloudRunCookieContent || undefined,
           googleToken:  gToken,
           config:       { provider, apiKey, model },
         }),
@@ -130,8 +140,9 @@ export function useAnalyzeStream() {
       const decoder = new TextDecoder();
       let buffer    = '';
       const allSegs: Segment[] = [];
-      let finalSource   = 'genkit-ai';
-      let finalDuration = 0;
+      let finalSource       = 'genkit-ai';
+      let finalDuration     = 0;
+      let finalExpectedTotal = 0;
       // server-sent error message — thrown after the loop so it escapes inner catch
       let serverError: string | null = null;
 
@@ -177,8 +188,9 @@ export function useAnalyzeStream() {
                   );
 
                 } else if (evt === 'done') {
-                  finalSource   = payload.source;
-                  finalDuration = payload.duration ?? 0;
+                  finalSource        = payload.source;
+                  finalDuration      = payload.duration ?? 0;
+                  finalExpectedTotal = payload.expectedTotal ?? 0;
 
                 } else if (evt === 'error') {
                   // 儲存伺服器錯誤，迴圈結束後再拋出（避免被 inner catch 吞掉）
@@ -214,8 +226,22 @@ export function useAnalyzeStream() {
         segments: sortedSegs,
         source:   finalSource as any,
       };
+
+      // 完整性檢查：若有預期段落數且實際不足 90%，代表部分批次失敗，不儲存
+      const isPartialResult =
+        finalExpectedTotal > 0 &&
+        sortedSegs.length < finalExpectedTotal * 0.9;
+
       setResponse(finalResponse);
-      historyStore.saveResult(finalResponse, title, author);
+      if (isPartialResult) {
+        toast({
+          variant:     'destructive',
+          title:       '字幕不完整，未儲存',
+          description: `僅成功標注 ${sortedSegs.length}/${finalExpectedTotal} 段（部分批次失敗），結果僅供本次瀏覽，請重試以取得完整字幕。`,
+        });
+      } else {
+        historyStore.saveResult(finalResponse, title, author);
+      }
 
       // ── 來源提示 Toast ─────────────────────────────────────────────────
       if (finalSource === 'whisper-groq') {
@@ -237,11 +263,14 @@ export function useAnalyzeStream() {
       }
 
     } catch (error: any) {
+      if (error.name === 'AbortError') return;
       const msg = error.message || '';
-      if (msg.includes('流量過高') || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+      if (msg.includes('location is not supported') || msg.includes('USER_LOCATION') || msg.includes('INVALID_ARGUMENT')) {
+        setErrorMessage('您的 Gemini API Key 所在地區不支援免費版，請至 Google AI Studio 啟用計費後再試，或改用 Groq API Key。');
+      } else if (msg.includes('流量過高') || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
         setErrorMessage('AI 服務暫時繁忙，請稍候幾秒後點「重試一次」。');
       } else if (msg.includes('429') || msg.includes('Quota') || msg.includes('limit') || msg.includes('RESOURCE_EXHAUSTED')) {
-        setErrorMessage('API 配額已滿，請稍候 30 秒再試。建議檢查 API Key 狀態。');
+        setErrorMessage('Gemini 免費版每分鐘限 5 次請求，請稍候 30 秒再試。若需更快的速度，請啟用 Google AI Studio 計費或改用 Groq。');
       } else {
         setErrorMessage(msg || '分析失敗，請檢查網路或 API 設定後再試。');
       }

@@ -44,7 +44,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { formatTime, cn } from "@/lib/utils";
-import { annotateSegmentsAction } from "@/ai/flows/analyze-video";
+import { annotateSegmentsAction, annotateFuriganaOnlyAction } from "@/ai/flows/analyze-video";
 import { 
   Dialog, 
   DialogContent, 
@@ -118,22 +118,30 @@ export default function HomePage() {
         author = info?.author || author;
       }
 
-      let segments = [];
-      if (manualText.includes("-->")) {
-        segments = parseSRT(manualText);
-      } else {
-        segments = parseTXT(manualText);
-      }
+      const parsed = manualText.includes("-->") ? parseSRT(manualText) : parseTXT(manualText);
 
-      if (segments.length === 0) throw new Error("無法解析文字內容，請檢查格式。");
+      if (parsed.length === 0) throw new Error("無法解析文字內容，請確認格式（SRT 含時間軸，或純文字每行一句）。");
 
-      toast({ title: "開始處理", description: "正在進行 AI 標註與翻譯..." });
-      
-      const result = await annotateSegmentsAction(segments, {
+      const aiConfig = {
         provider: settings.aiProvider,
-        apiKey: settings.aiProvider === 'google' ? settings.geminiApiKey : settings.groqApiKey,
-        model: settings.aiProvider === 'google' ? settings.geminiModel : settings.groqModel
+        apiKey:   settings.aiProvider === 'google' ? settings.geminiApiKey : settings.groqApiKey,
+        model:    settings.aiProvider === 'google' ? settings.geminiModel  : settings.groqModel,
+      };
+
+      const isBilingual = parsed.every(s => s.translation);
+      toast({
+        title:       "開始處理",
+        description: isBilingual
+          ? "雙語 SRT 偵測成功，僅需標注振假名…"
+          : "正在進行 AI 標注與翻譯…",
       });
+
+      const result = isBilingual
+        ? await annotateFuriganaOnlyAction(
+            parsed as Array<{ start: number; end: number; text: string; translation: string }>,
+            aiConfig
+          )
+        : await annotateSegmentsAction(parsed, aiConfig);
       const finalResult = { ...result, videoId };
       
       saveResult(finalResult, title, author);
@@ -190,30 +198,22 @@ export default function HomePage() {
     <div className="min-h-full bg-background px-6 pt-6 space-y-8 max-w-2xl mx-auto pb-24">
       <header className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-4xl font-headline font-bold text-foreground">學習中心</h1>
+          <div>
+            <p className="text-[11px] font-black text-primary uppercase tracking-[0.2em]">NihongoPath</p>
+            <h1 className="text-4xl font-headline font-bold text-foreground mt-0.5">學習中心</h1>
+          </div>
           <div className="flex items-center gap-1 bg-primary/10 px-3 py-1 rounded-full">
             <Zap size={14} className="text-primary fill-primary" />
             <span className="text-[10px] font-black text-primary uppercase">Pro v1.1</span>
           </div>
         </div>
         
-        {/* API Key 狀態提示區塊 - 改進引導視覺 */}
+        {/* API Key 狀態提示 */}
         {!hasApiKey && (
-          <div className="w-full bg-red-50 border-2 border-red-200 rounded-[2.5rem] p-8 flex flex-col items-center text-center gap-6 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700">
-            <div className="w-20 h-20 rounded-3xl bg-white flex items-center justify-center shadow-xl border-4 border-red-50">
-              <AlertTriangle size={48} className="text-red-500 animate-bounce" />
-            </div>
-            <div className="space-y-2">
-              <p className="text-xl font-black text-red-900 uppercase tracking-tight">AI 功能尚未啟動</p>
-              <p className="text-sm text-red-700 font-bold opacity-80 leading-relaxed max-w-xs">
-                我們需要您的 API Key 才能進行日文標註與翻譯。請點擊下方按鈕前往設定。
-              </p>
-            </div>
-            <Link href="/settings" className="w-full">
-              <Button size="lg" variant="destructive" className="w-full rounded-[1.5rem] h-16 px-8 text-base font-black uppercase tracking-widest shadow-2xl hover:scale-[1.02] transition-all">
-                <Settings className="mr-3" size={20} /> 立即設定 API Key
-              </Button>
-            </Link>
+          <div className="flex items-center gap-2.5 px-4 py-2.5 bg-destructive/8 border border-destructive/20 rounded-xl">
+            <AlertTriangle size={13} className="text-destructive shrink-0" />
+            <span className="text-xs font-bold text-destructive flex-1">AI 標注功能需設定 API Key</span>
+            <Link href="/settings" className="text-xs font-black text-destructive underline underline-offset-2 shrink-0">前往設定</Link>
           </div>
         )}
 
@@ -227,6 +227,20 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {/* App description — required for Google OAuth consent screen verification */}
+      <section className="p-4 bg-muted/30 rounded-2xl border border-border/40 space-y-2 text-xs text-muted-foreground leading-relaxed">
+        <p>
+          <span className="font-black text-foreground">NihongoPath</span> 是沉浸式日語學習工具，
+          透過 YouTube 音樂影片提供 Furigana 標注、羅馬拼音、中文翻譯與 AI 文法解說。
+        </p>
+        <p>
+          選擇性的 <span className="font-semibold text-foreground">Google 登入</span>僅用於取得
+          <code className="mx-1 px-1 py-0.5 rounded bg-muted font-mono text-[10px]">youtube.readonly</code>
+          授權，讓本服務能存取受限影片的字幕，不會讀取其他 Google 帳號資料。詳見
+          <Link href="/privacy" className="ml-1 text-primary font-semibold hover:underline">隱私權政策</Link>。
+        </p>
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] px-1">快速開始</h2>
@@ -403,6 +417,20 @@ export default function HomePage() {
           </div>
         </section>
       )}
+
+      {/* Legal footer — required for Google OAuth consent screen verification */}
+      <footer className="mt-8 pb-6 text-center space-y-2">
+        <p className="text-xs font-black text-foreground/60 uppercase tracking-[0.25em]">NihongoPath</p>
+        <div className="flex items-center justify-center gap-4">
+          <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+            隱私權政策
+          </Link>
+          <span className="text-muted-foreground/30">·</span>
+          <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+            服務條款
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }

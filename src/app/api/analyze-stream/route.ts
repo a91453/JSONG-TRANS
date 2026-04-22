@@ -16,10 +16,12 @@
 export const maxDuration = 60;
 
 import { getSmartSubtitles } from '@/lib/youtube-actions';
-import { annotateBatch, generateFull, type RawSeg } from '@/ai/nodes/annotateNode';
+import { annotateBatch, translateBatch, generateFull, type RawSeg } from '@/ai/nodes/annotateNode';
 
-const BATCH_SIZE  = 15;
-const CONCURRENCY = 5;
+// 30 segments/batch → 2-3 batches for most songs (reduces total API calls)
+const BATCH_SIZE  = 30;
+// CONCURRENCY=1 keeps sequential execution predictable under Vercel's 60s limit
+const CONCURRENCY = 1;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -36,11 +38,13 @@ function sseChunk(event: string, data: unknown): Uint8Array {
 export async function POST(req: Request) {
   const {
     videoId,
-    videoTitle    = '',
-    forceRefresh  = false,
+    videoTitle           = '',
+    forceRefresh         = false,
     groqApiKeyForWhisper,
+    cloudRunGroqApiKey,
+    cloudRunCookieContent,
     googleToken,
-    config        = {},
+    config               = {},
   } = await req.json();
 
   const provider: 'google' | 'groq' = config.provider ?? 'google';
@@ -70,7 +74,7 @@ export async function POST(req: Request) {
 
         send('stage', { text: '正在比對 YouTube 字幕…' });
 
-        type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
+        type Source = 'lrclib' | 'youtube-official' | 'youtube-auto' | 'external' | 'manual' | 'whisper-groq' | 'genkit-ai';
         let subtitleResult  = null;
         let expectedSource: Source;
         let rawSegments: RawSeg[]  = [];
@@ -83,7 +87,9 @@ export async function POST(req: Request) {
             subtitleResult = await getSmartSubtitles(
               videoId, videoTitle, forceRefresh,
               googleToken,
-              groqKeyForWhisper ?? undefined
+              groqKeyForWhisper ?? undefined,
+              cloudRunGroqApiKey as string | undefined,
+              cloudRunCookieContent as string | undefined,
             );
           } catch (e: any) {
             if (e.message === 'YOUTUBE_AUTH_REQUIRED' && !googleToken) {
@@ -98,13 +104,13 @@ export async function POST(req: Request) {
         if (subtitleResult && subtitleResult.segments.length >= 3) {
           const srcMap: Record<string, Source> = {
             'whisper-groq':     'whisper-groq',
-            'youtube-official': 'server-sub',
-            'youtube-auto':     'server-sub-auto',
+            'youtube-official': 'youtube-official',
+            'youtube-auto':     'youtube-auto',
             'lrclib':           'lrclib',
-            'external':         'server-sub',
-            'manual':           'server-sub',
+            'external':         'external',
+            'manual':           'manual',
           };
-          expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
+          expectedSource = srcMap[subtitleResult.source] ?? 'youtube-official';
           rawSegments    = subtitleResult.segments;
           sourceLabel    = subtitleResult.source === 'whisper-groq' ? 'Whisper 語音聽寫'
                          : subtitleResult.source === 'lrclib'       ? 'LrcLib 同步'
@@ -130,19 +136,33 @@ export async function POST(req: Request) {
           send('batch', { segments: withIds, batchIndex: 0, totalBatches: 1 });
           allAnnotated.push(...withIds);
         } else {
+          // 若來源已預先標注振假名（例如 Cloud Run 轉錄），只需 AI 翻譯
+          // 取前 5 段非空段落投票，多數有 furigana 才視為預先標注（避免空白 intro 誤判）
+          const sampleSegs = rawSegments.filter(s => s.text?.trim()).slice(0, 5);
+          const hasPreAnnotatedFurigana =
+            sampleSegs.length > 0 &&
+            sampleSegs.filter(s => Array.isArray(s.furigana) && s.furigana.length > 0).length > sampleSegs.length / 2;
+
           const batches      = chunk(rawSegments, BATCH_SIZE);
           const totalBatches = batches.length;
-          send('stage', { text: `並行標注 ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
+          const taskLabel    = hasPreAnnotatedFurigana ? '翻譯' : '標注';
+          if (hasPreAnnotatedFurigana) {
+            send('stage', { text: '振假名已預先標注，僅需翻譯 ⚡' });
+          }
+          send('stage', { text: `並行${taskLabel} ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
 
-          let completed  = 0;
-          let failed     = 0;
-          let nextIdx    = 0;
+          let completed   = 0;
+          let failed      = 0;
+          let nextIdx     = 0;
+          let fatalError: Error | null = null;
 
           async function worker() {
             while (nextIdx < batches.length) {
+              if (fatalError) break;
               const i = nextIdx++;
               try {
-                const annotated = await annotateBatch(
+                const runner = hasPreAnnotatedFurigana ? translateBatch : annotateBatch;
+                const annotated = await runner(
                   batches[i], titleForPrompt, sourceLabel, provider, apiKey, model
                 );
                 const withIds = annotated.map(s => ({ ...s, id: crypto.randomUUID() }));
@@ -150,13 +170,26 @@ export async function POST(req: Request) {
                 allAnnotated.push(...withIds);
                 send('stage', { text: `已完成 ${++completed} / ${totalBatches} 批` });
               } catch (err: any) {
+                const msg: string = err?.message || '';
+                // 地區封鎖或認證錯誤無法靠重試解決，立刻中止所有 worker
+                if (
+                  msg.includes('location is not supported') ||
+                  msg.includes('INVALID_ARGUMENT') ||
+                  msg.includes('PERMISSION_DENIED') ||
+                  msg.includes('API_KEY_INVALID')
+                ) {
+                  fatalError = err;
+                  break;
+                }
                 failed++;
-                send('stage', { text: `第 ${i + 1} 批失敗：${err?.message || '未知錯誤'}` });
+                send('stage', { text: `第 ${i + 1} 批失敗：${msg || '未知錯誤'}` });
               }
             }
           }
 
           await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
+
+          if (fatalError) throw fatalError;
 
           if (allAnnotated.length === 0) {
             throw new Error('所有批次標注均失敗，請檢查 API Key 或稍後再試。');
@@ -166,9 +199,11 @@ export async function POST(req: Request) {
         }
 
         // ── 4. 完成 ────────────────────────────────────────────────────────
+        // expectedTotal=0 when isFullGenerate (AI 全自動，無原始段落數可比對)
         send('done', {
           source:        expectedSource,
           totalSegments: allAnnotated.length,
+          expectedTotal: rawSegments.length,
           duration:      allAnnotated[allAnnotated.length - 1]?.end ?? 0,
           videoId,
         });

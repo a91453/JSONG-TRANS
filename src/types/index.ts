@@ -18,7 +18,7 @@ export interface AnalyzeResponse {
   videoId: string;
   duration: number;
   segments: Segment[];
-  source: 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai' | 'cache' | 'lrclib';
+  source: 'youtube-official' | 'youtube-auto' | 'external' | 'manual' | 'whisper-groq' | 'genkit-ai' | 'cache' | 'lrclib' | 'server-sub' | 'server-sub-auto';
 }
 
 export interface YouTubeVideoInfo {

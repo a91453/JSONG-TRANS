@@ -1,6 +1,7 @@
 
 "use client"
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import { 
   useSettingsStore, 
@@ -84,6 +85,8 @@ export default function SettingsPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showGroqKey, setShowGroqKey] = useState(false);
+  const [showCloudRunKey, setShowCloudRunKey] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // ── 手動上傳字幕狀態 ─────────────────────────────────────────────────────
   const [uploadUrl, setUploadUrl] = useState('');
@@ -366,6 +369,17 @@ export default function SettingsPage() {
             </TabsContent>
           </Tabs>
 
+          {/* ── 進階設定 收折區 ─────────────────────────────────────────── */}
+          <button
+            onClick={() => setShowAdvanced(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-muted/20 border text-xs font-bold text-muted-foreground hover:bg-muted/40 transition-colors"
+          >
+            <span className="uppercase tracking-widest">進階設定</span>
+            <span className="text-base leading-none">{showAdvanced ? '▲' : '▼'}</span>
+          </button>
+
+          {showAdvanced && <>
+
           {/* 字幕取得管線說明 */}
           <Card className="rounded-2xl border bg-muted/10">
             <CardContent className="p-5 space-y-4">
@@ -393,6 +407,119 @@ export default function SettingsPage() {
               <p className="text-[9px] text-muted-foreground leading-relaxed">
                 分析完成後可由歌詞頁頂部的來源標籤（如「人工字幕」「Whisper 聽寫」）確認實際走了哪條路線。
               </p>
+            </CardContent>
+          </Card>
+
+          {/* Cloud Run 轉錄服務 — 使用者自備資源 */}
+          <Card className="rounded-2xl border bg-muted/10">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Rocket size={16} className="text-primary" />
+                <h3 className="text-xs font-bold uppercase tracking-widest">Cloud Run 轉錄服務（自備資源）</h3>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                提供您自己的 Groq API Key 或 YouTube cookies，可避免佔用服務端配額，並繞過地區／年齡限制。
+                填入後僅儲存於本機，不上傳至伺服器日誌。
+              </p>
+
+              {/* Cloud Run 專用 Groq Key */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-600">
+                      <Key size={16} />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">Groq API Key（轉錄用）</Label>
+                      <p className="text-[9px] text-muted-foreground">Cloud Run 用此 key 呼叫 Whisper，不影響 AI 標注配額</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowCloudRunKey(!showCloudRunKey)}>
+                    {showCloudRunKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </Button>
+                </div>
+                <Input
+                  type={showCloudRunKey ? 'text' : 'password'}
+                  placeholder="gsk_...（選填，留空則使用服務端內建 key）"
+                  className="rounded-xl bg-muted/30 border-none text-xs h-11 font-mono"
+                  value={settings.cloudRunGroqApiKey}
+                  onChange={(e) => settings.setCloudRunGroqApiKey(e.target.value)}
+                />
+                {settings.cloudRunGroqApiKey && (
+                  <p className="text-[9px] text-orange-600 font-black flex items-center gap-1">
+                    <CheckCircle2 size={10} /> 轉錄將計入您的 Groq 帳號配額
+                  </p>
+                )}
+              </div>
+
+              {/* Cookie 上傳 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600">
+                      <FileText size={16} />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">YouTube cookies.txt</Label>
+                      <p className="text-[9px] text-muted-foreground">Netscape 格式，可繞過年齡／地區限制</p>
+                    </div>
+                  </div>
+                  <label className="text-[10px] font-bold text-primary flex items-center gap-1 cursor-pointer hover:underline">
+                    <Upload size={11} />
+                    選擇檔案
+                    <input
+                      type="file"
+                      accept=".txt,text/plain"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        if (f.size > 100 * 1024) {
+                          alert('cookies.txt 過大（上限 100KB）');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const text = String(reader.result ?? '');
+                          if (!text.trimStart().startsWith('# Netscape')) {
+                            alert('必須是 Netscape HTTP Cookie File 格式（第一行應為 # Netscape HTTP Cookie File）');
+                            return;
+                          }
+                          settings.setCloudRunCookieContent(text);
+                        };
+                        reader.readAsText(f, 'utf-8');
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+                <Textarea
+                  placeholder={"# Netscape HTTP Cookie File\n# 從瀏覽器 Cookie 匯出工具取得，貼上或選擇檔案"}
+                  value={settings.cloudRunCookieContent}
+                  onChange={(e) => settings.setCloudRunCookieContent(e.target.value)}
+                  className="rounded-xl bg-muted/30 border-none text-[10px] font-mono min-h-[80px] resize-y"
+                />
+                {settings.cloudRunCookieContent ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] text-blue-600 font-black flex items-center gap-1">
+                      <CheckCircle2 size={10} /> cookies 已設定（{(settings.cloudRunCookieContent.length / 1024).toFixed(1)} KB）
+                    </p>
+                    <Button variant="ghost" size="sm" className="h-6 text-[9px] text-destructive px-2"
+                      onClick={() => settings.setCloudRunCookieContent('')}>
+                      清除
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* 隱私提醒 */}
+              <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/60">
+                <p className="text-[9px] text-amber-700 leading-relaxed font-medium">
+                  ⚠ <span className="font-black">隱私提醒：</span>cookies 僅用於本次轉錄請求，不會被記錄於日誌。
+                  建議使用專用的限額 Groq Key，避免提供主帳號 key。
+                  請勿在公用電腦設定 cookies。
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -513,6 +640,8 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          </>} {/* end showAdvanced */}
         </section>
 
         <section className="space-y-3">
@@ -548,7 +677,30 @@ export default function SettingsPage() {
                   <span className="text-xs font-mono font-bold text-muted-foreground">{settings.lyricsFontSize} pt</span>
                 </div>
                 <div className="px-2">
-                  <Slider value={[settings.lyricsFontSize]} min={14} max={32} step={1} onValueChange={(val) => settings.setLyricsFontSize(val[0])} />
+                  <Slider value={[settings.lyricsFontSize]} min={8} max={32} step={1} onValueChange={(val) => settings.setLyricsFontSize(val[0])} />
+                </div>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-600">
+                      <Type size={18} />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">每行最多字元數</Label>
+                      <p className="text-[9px] text-muted-foreground">超過此數強制換行；0 = 不限制</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-muted-foreground">
+                    {settings.maxCharsPerLine === 0 ? '不限' : `${settings.maxCharsPerLine} 字`}
+                  </span>
+                </div>
+                <div className="px-2">
+                  <Slider
+                    value={[settings.maxCharsPerLine]}
+                    min={0} max={50} step={1}
+                    onValueChange={(val) => settings.setMaxCharsPerLine(val[0])}
+                  />
                 </div>
               </div>
             </CardContent>
@@ -561,22 +713,51 @@ export default function SettingsPage() {
             <CardContent className="p-0 divide-y">
               <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-600">
+                    <span className="font-bold text-xs">字</span>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-bold">彩色字卡模式</Label>
+                    <p className="text-[9px] text-muted-foreground">每個單字獨立彩色卡片，隨時間軸高亮</p>
+                  </div>
+                </div>
+                <Switch checked={settings.wordCardMode} onCheckedChange={settings.setWordCardMode} />
+              </div>
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-600">
                     <span className="font-bold text-xs">あ</span>
                   </div>
-                  <Label className="text-sm font-bold">預設標注模式</Label>
+                  <div>
+                    <Label className="text-sm font-bold">顯示讀音（平假名）</Label>
+                    <p className="text-[9px] text-muted-foreground">漢字上方標注振假名</p>
+                  </div>
                 </div>
-                <Select value={settings.defaultAnnotation} onValueChange={(val: any) => settings.setDefaultAnnotation(val)}>
-                  <SelectTrigger className="w-32 h-9 rounded-xl border-none bg-muted/50 text-xs font-bold">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="furigana">僅假名</SelectItem>
-                    <SelectItem value="romaji">僅羅馬拼音</SelectItem>
-                    <SelectItem value="both">假名 + 拼音</SelectItem>
-                    <SelectItem value="none">隱藏標注</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Switch checked={settings.showFurigana} onCheckedChange={settings.setShowFurigana} />
+              </div>
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600">
+                    <span className="font-black text-[10px]">A</span>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-bold">顯示羅馬拼音</Label>
+                    <p className="text-[9px] text-muted-foreground">原文上方以拉丁字母標音</p>
+                  </div>
+                </div>
+                <Switch checked={settings.showRomaji} onCheckedChange={settings.setShowRomaji} />
+              </div>
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-pink-500/10 flex items-center justify-center text-pink-600">
+                    <span className="font-bold text-xs">カ</span>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-bold">片假名也顯示讀音</Label>
+                    <p className="text-[9px] text-muted-foreground">關閉時外來語（純片假名）不標讀音</p>
+                  </div>
+                </div>
+                <Switch checked={settings.showKatakanaReading} onCheckedChange={settings.setShowKatakanaReading} />
               </div>
               <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -625,6 +806,17 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </section>
+      </div>
+
+      {/* Legal links */}
+      <div className="mt-6 pb-4 text-center flex items-center justify-center gap-4">
+        <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+          隱私權政策
+        </Link>
+        <span className="text-muted-foreground/50">·</span>
+        <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+          服務條款
+        </Link>
       </div>
     </div>
   );

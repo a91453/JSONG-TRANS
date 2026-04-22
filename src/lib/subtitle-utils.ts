@@ -1,6 +1,7 @@
 /**
  * @fileOverview 字幕處理工具 (v3.0)
  * 強化了 SRT 解析器，精準處理時間軸（支援逗號與點號）與多行文字內容。
+ * 支援雙語 SRT（日文 + 中文翻譯雙行），自動分離 japanese / translation。
  * 另提供秒數→SRT 時間字串轉換與 SRT 匯出功能。
  */
 
@@ -33,26 +34,43 @@ export function generateSRT(
  */
 export function srtTimeToSeconds(timeStr: string): number {
   if (!timeStr) return 0;
-  // 處理毫秒前的逗號或點號
   const clean = timeStr.trim().replace(',', '.');
   const parts = clean.split(':');
   if (parts.length !== 3) return 0;
-  
   const h = parseFloat(parts[0]) || 0;
   const m = parseFloat(parts[1]) || 0;
   const s = parseFloat(parts[2]) || 0;
-  
   return h * 3600 + m * 60 + s;
 }
 
+/** 判斷是否含有日文（平假名或片假名） */
+function hasJapanese(text: string): boolean {
+  return /[぀-ゟ゠-ヿ]/.test(text);
+}
+
+/** 判斷是否為純中文行（有漢字但無平假名/片假名） */
+function isChineseOnly(text: string): boolean {
+  return /[一-鿿㐀-䶿]/.test(text) && !hasJapanese(text);
+}
+
+export interface ParsedSRTSegment {
+  text:         string;
+  /** 若 SRT 已含中文翻譯則填入，可直接跳過 AI 翻譯步驟 */
+  translation?: string;
+  start:        number;
+  end:          number;
+}
+
 /**
- * 解析 SRT 字幕內容
- * 支援標準索引、時間軸與多行歌詞。
+ * 解析 SRT 字幕內容。
+ * 支援：
+ *   - 標準單語 SRT（日文）
+ *   - 雙語 SRT（第一行日文 + 第二行中文翻譯）
+ *   - 多行文字合併為單行
  */
-export function parseSRT(content: string): Array<{ text: string; start: number; end: number }> {
-  const segments: Array<{ text: string; start: number; end: number }> = [];
-  
-  // 統一換行符並依據空行分割區塊
+export function parseSRT(content: string): ParsedSRTSegment[] {
+  const segments: ParsedSRTSegment[] = [];
+
   const normalizedContent = content.replace(/\r\n/g, '\n').trim();
   const blocks = normalizedContent.split(/\n\s*\n/);
 
@@ -60,10 +78,9 @@ export function parseSRT(content: string): Array<{ text: string; start: number; 
     const lines = block.trim().split('\n');
     if (lines.length < 2) continue;
 
-    // 尋找包含時間軸的一行 (例如 00:00:40,630 --> 00:00:50,670)
     let timeLineIndex = -1;
     const timeRegex = /(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})/;
-    
+
     for (let i = 0; i < lines.length; i++) {
       if (timeRegex.test(lines[i])) {
         timeLineIndex = i;
@@ -71,43 +88,61 @@ export function parseSRT(content: string): Array<{ text: string; start: number; 
       }
     }
 
-    if (timeLineIndex !== -1) {
-      const match = lines[timeLineIndex].match(timeRegex);
-      if (match) {
-        const start = srtTimeToSeconds(match[1]);
-        const end = srtTimeToSeconds(match[2]);
+    if (timeLineIndex === -1) continue;
 
-        // 時間線之後的所有行均視為歌詞文字，並合併為單行
-        const textLines = lines.slice(timeLineIndex + 1);
-        const text = textLines.join(' ')
-          .replace(/<[^>]+>/g, '') // 移除潛在的 HTML 標記
-          .trim();
+    const match = lines[timeLineIndex].match(timeRegex);
+    if (!match) continue;
 
-        if (text) {
-          segments.push({ text, start, end });
-        }
-      }
+    const start = srtTimeToSeconds(match[1]);
+    const end   = srtTimeToSeconds(match[2]);
+
+    const textLines = lines.slice(timeLineIndex + 1)
+      .map(l => l.replace(/<[^>]+>/g, '').trim())
+      .filter(l => l.length > 0);
+
+    if (textLines.length === 0) continue;
+
+    // 雙語偵測：恰好兩行，第一行含日文，第二行為純中文
+    if (
+      textLines.length === 2 &&
+      hasJapanese(textLines[0]) &&
+      isChineseOnly(textLines[1])
+    ) {
+      segments.push({
+        text:        textLines[0],
+        translation: textLines[1],
+        start,
+        end,
+      });
+    } else {
+      // 單語或多行合併
+      segments.push({
+        text:  textLines.join(' '),
+        start,
+        end,
+      });
     }
   }
+
   return segments;
 }
 
 /**
  * 解析純文字歌詞（每一句預設分配 5 秒）
  */
-export function parseTXT(content: string): Array<{ text: string; start: number; end: number }> {
+export function parseTXT(content: string): ParsedSRTSegment[] {
   const lines = content.split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line.length >= 1);
 
   return lines.map((line, i) => {
-    // 移除音樂符號
     const cleaned = line.replace(/[♪♫♬]/g, '').trim();
     const start = i * 5.0;
     return {
-      text: cleaned || line,
-      start: start,
-      end: start + 5.0
+      text:  cleaned || line,
+      start,
+      end:   start + 5.0,
     };
   });
 }
+

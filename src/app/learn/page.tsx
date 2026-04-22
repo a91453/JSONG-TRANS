@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import YouTube, { YouTubeProps } from 'react-youtube'
-import { FuriganaText, AnnotationMode } from "@/components/FuriganaText"
+import { FuriganaText } from "@/components/FuriganaText"
 import { VideoPlayerControls } from "@/components/VideoPlayerControls"
 import { LoadingSkeleton } from "@/components/LoadingSkeleton"
 import { SourceBadge } from "@/components/SourceBadge"
@@ -31,14 +31,16 @@ import {
   Lightbulb,
   BookOpen,
   Download,
-  LogIn
+  LogIn,
+  FileUp,
 } from "lucide-react"
 import { Segment } from "@/types"
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import {
   DropdownMenu,
@@ -46,10 +48,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Textarea } from "@/components/ui/textarea"
 import { convertToRomaji } from "@/lib/romaji-utils"
 import { explainSentenceAction, type ExplainOutput } from "@/ai/flows/explain-sentence"
+import { annotateSegmentsAction, annotateFuriganaOnlyAction } from "@/ai/flows/analyze-video"
 import { speak } from "@/lib/speech"
-import { generateSRT } from "@/lib/subtitle-utils"
+import { generateSRT, parseSRT, parseTXT } from "@/lib/subtitle-utils"
+import { useHistoryStore } from "@/store/use-app-store"
 
 function LearnContent() {
   const searchParams = useSearchParams()
@@ -63,7 +68,11 @@ function LearnContent() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1.0)
   const [isPinned, setIsPinned] = useState(false)
-  const [annotationMode, setAnnotationMode] = useState<AnnotationMode>(settings.defaultAnnotation)
+  // 會話內可覆寫設定頁預設值；初始值跟隨全域 settings
+  const [showFurigana,        setShowFurigana       ] = useState(settings.showFurigana)
+  const [showRomaji,          setShowRomaji         ] = useState(settings.showRomaji)
+  const [showKatakanaReading, setShowKatakanaReading] = useState(settings.showKatakanaReading)
+  const [wordCardMode,        setWordCardMode        ] = useState(settings.wordCardMode)
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null)
   
   const [loopingSegmentId, setLoopingSegmentId] = useState<string | null>(null)
@@ -74,9 +83,14 @@ function LearnContent() {
   const [captionOffset, setCaptionOffset] = useState(0)
   const [isExplaining, setIsExplaining] = useState(false)
   const [explainData, setExplainData] = useState<ExplainOutput | null>(null)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [importText, setImportText]     = useState("")
+  const [isImporting, setIsImporting]   = useState(false)
+  const importFileRef = useRef<HTMLInputElement>(null)
 
   const { toast } = useToast()
   const { addEntry, addAllFromSegment, contains: dictContains } = useDictionaryStore()
+  const { saveResult } = useHistoryStore()
   const { addFavorite, isFavorited } = useFavoriteStore()
   const {
     response, streamedSegments, isLoading, isSigningIn,
@@ -85,7 +99,57 @@ function LearnContent() {
   } = useAnalyzeStream()
 
   const isValidVideoId = v && (v.length === 11 || v.startsWith('custom_') || v.startsWith('file-'))
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef  = useRef<HTMLDivElement>(null)
+  const userScrolledAtRef   = useRef<number>(0)
+  const lastAutoScrollAtRef = useRef<number>(0)
+
+  /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 3s after */
+  useEffect(() => {
+    const c = scrollContainerRef.current;
+    if (!c) return;
+    const mark = () => { userScrolledAtRef.current = Date.now(); };
+    c.addEventListener('wheel',     mark, { passive: true });
+    c.addEventListener('touchmove', mark, { passive: true });
+    return () => {
+      c.removeEventListener('wheel',     mark);
+      c.removeEventListener('touchmove', mark);
+    };
+  }, [response]);
+
+  /**
+   * Scroll active segment into view:
+   * - Position it at ~30% from the top (not centered) so upcoming lyrics remain visible below.
+   * - Cooldown of 700ms between auto-scrolls prevents double-scroll during smooth animation.
+   * - Skipped entirely for 3s after a manual user scroll.
+   */
+  const scrollActiveIntoView = (segmentId: string) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const el = document.getElementById(`segment-${segmentId}`);
+    if (!el) return;
+    // Respect manual scroll cooldown
+    if (Date.now() - userScrolledAtRef.current < 3000) return;
+    // Prevent double-scroll while smooth animation is still running
+    if (Date.now() - lastAutoScrollAtRef.current < 700) return;
+    // Use getBoundingClientRect for position relative to container (offsetTop is relative to offsetParent, which may not be the scroll container)
+    const eRect   = el.getBoundingClientRect();
+    const cRect   = container.getBoundingClientRect();
+    const eHeight = el.offsetHeight;
+    const cHeight = container.clientHeight;
+    const cTop    = container.scrollTop;
+    // Element's position from the top of the container's scrollable content
+    const eTop    = eRect.top - cRect.top + cTop;
+    // Safe zone: top 20% to bottom 65% — within this range, don't scroll
+    const safeTop    = cTop + cHeight * 0.20;
+    const safeBottom = cTop + cHeight * 0.65;
+    if (eTop >= safeTop && eTop + eHeight <= safeBottom) return;
+    // Target: active segment top sits at 28% from container top
+    lastAutoScrollAtRef.current = Date.now();
+    container.scrollTo({
+      top: eTop - cHeight * 0.28,
+      behavior: 'smooth',
+    });
+  };
 
   useEffect(() => {
     // isLoading 防護：避免 setResponse(null) 觸發重複呼叫
@@ -95,8 +159,11 @@ function LearnContent() {
   }, [v, isValidVideoId, analyze, response, isLoading])
 
   useEffect(() => {
-    setAnnotationMode(settings.defaultAnnotation)
-  }, [settings.defaultAnnotation])
+    setShowFurigana(settings.showFurigana)
+    setShowRomaji(settings.showRomaji)
+    setShowKatakanaReading(settings.showKatakanaReading)
+    setWordCardMode(settings.wordCardMode)
+  }, [settings.showFurigana, settings.showRomaji, settings.showKatakanaReading, settings.wordCardMode])
 
   // streamedSegments grows batch-by-batch during SSE; falls back to response.segments on cache hit
   const segments = streamedSegments.length > 0 ? streamedSegments : (response?.segments ?? [])
@@ -120,10 +187,7 @@ function LearnContent() {
         const active = segments.find(s => time >= s.start + captionOffset && time < s.end + captionOffset)
         if (active && active.id !== activeSegmentId) {
           setActiveSegmentId(active.id)
-          if (!isPinned) {
-            const el = document.getElementById(`segment-${active.id}`)
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
+          if (!isPinned) scrollActiveIntoView(active.id)
         }
 
         if (loopingSegmentId) {
@@ -140,10 +204,11 @@ function LearnContent() {
             }
           }
         } else if (isShadowing) {
-          const currentSeg = segments.find(s => time >= s.end + captionOffset - 0.1 && time <= s.end + captionOffset + 0.1)
-          if (currentSeg) {
-            player.pauseVideo()
-          }
+          // Pause when any segment's end boundary is crossed (same tolerance as loop)
+          const endedSeg = segments.find(s =>
+            time >= s.end + captionOffset - 0.05 && time < s.end + captionOffset + 0.15
+          )
+          if (endedSeg) player.pauseVideo()
         }
       }, 100) 
     }
@@ -216,6 +281,55 @@ function LearnContent() {
         focusReading: reading,
         songTitle:    videoTitle || undefined,
       });
+    }
+  }
+
+  const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setImportText(ev.target?.result as string)
+      toast({ title: "檔案已載入", description: file.name })
+    }
+    reader.readAsText(file)
+    if (e.target) e.target.value = ""
+  }
+
+  const handleManualImport = async () => {
+    if (!importText.trim()) return
+    const provider = settings.aiProvider
+    const apiKey   = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey
+    if (!apiKey) {
+      toast({ variant: "destructive", title: "缺少 API Key", description: "請先在設定中配置 API Key。" })
+      return
+    }
+    setIsImporting(true)
+    setIsImportDialogOpen(false)
+    try {
+      const parsed = importText.includes("-->") ? parseSRT(importText) : parseTXT(importText)
+      if (parsed.length === 0) throw new Error("無法解析文字，請確認格式（SRT 含時間軸，或純文字每行一句）。")
+      const aiConfig = { provider, apiKey, model: provider === 'google' ? settings.geminiModel : settings.groqModel }
+      const isBilingual = parsed.every(s => s.translation)
+      const result = isBilingual
+        ? await annotateFuriganaOnlyAction(
+            parsed as Array<{ start: number; end: number; text: string; translation: string }>,
+            aiConfig
+          )
+        : await annotateSegmentsAction(parsed, aiConfig)
+      const videoId     = v.length === 11 ? v : `file-${Date.now()}`
+      const finalResult = { ...result, videoId }
+      saveResult(finalResult, videoTitle || "匯入字幕", artistName || "自定義")
+      toast({ title: "匯入完成", description: `${result.segments.length} 段字幕已就緒。` })
+      if (videoId !== v) {
+        router.push(`/learn?v=${videoId}`)
+      } else {
+        analyze(v, false)
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "匯入失敗", description: err.message })
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -336,6 +450,7 @@ function LearnContent() {
                 <DropdownMenuContent align="end" className="rounded-2xl">
                   <DropdownMenuItem onClick={handleShare}><Share2 className="mr-2 h-4 w-4" /> 分享逐字稿</DropdownMenuItem>
                   <DropdownMenuItem onClick={handleDownloadSRT}><Download className="mr-2 h-4 w-4" /> 下載 SRT 字幕</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsImportDialogOpen(true)}><FileUp className="mr-2 h-4 w-4" /> 手動匯入字幕</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => analyze(v, true)} className="text-accent"><RotateCcw className="mr-2 h-4 w-4" /> 重新分析</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -360,22 +475,26 @@ function LearnContent() {
           )}
 
           <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-muted/10 border-b">
-            {(['furigana', 'romaji', 'both', 'none'] as AnnotationMode[]).map((mode) => (
+            {/* 字卡 / 行列 模式切換 */}
+            <Button
+              variant="ghost" size="sm" aria-pressed={wordCardMode}
+              className={cn("rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
+                wordCardMode ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+              onClick={() => { setWordCardMode(v => !v); if (typeof navigator !== 'undefined') navigator.vibrate?.(5); }}
+            >字卡</Button>
+            <div className="w-px h-4 bg-border shrink-0" />
+            {([
+              { key: 'furigana', label: '假名',   state: showFurigana,        toggle: () => setShowFurigana(v => !v) },
+              { key: 'romaji',   label: '拼音',   state: showRomaji,          toggle: () => setShowRomaji(v => !v) },
+              { key: 'katakana', label: '片讀音', state: showKatakanaReading, toggle: () => setShowKatakanaReading(v => !v) },
+            ] as const).map(({ key, label, state, toggle }) => (
               <Button
-                key={mode}
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
-                  annotationMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                )}
-                onClick={() => { setAnnotationMode(mode); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
-              >
-                {mode === 'furigana' && "假名"}
-                {mode === 'romaji' && "拼音"}
-                {mode === 'both' && "完整"}
-                {mode === 'none' && "隱藏"}
-              </Button>
+                key={key}
+                variant="ghost" size="sm" aria-pressed={state}
+                className={cn("rounded-full h-7 px-3 text-[10px] font-black shrink-0 uppercase tracking-widest",
+                  state ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                onClick={() => { toggle(); if (typeof navigator !== 'undefined') navigator.vibrate?.(5); }}
+              >{label}</Button>
             ))}
             <div className="w-px h-4 bg-border shrink-0 mx-1" />
             <button
@@ -413,7 +532,7 @@ function LearnContent() {
         </div>
 
         {/* ── Right panel: lyrics scroll area ────────────────────────── */}
-        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 md:px-6 no-scrollbar scroll-smooth bg-gradient-to-b from-background to-muted/5">
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 md:px-6 no-scrollbar bg-gradient-to-b from-background to-muted/5">
           <div className="py-8 space-y-4 md:space-y-6 pb-16">
             {segments.map((seg, idx) => {
               const isActive = activeSegmentId === seg.id
@@ -434,8 +553,15 @@ function LearnContent() {
                   <div className="flex flex-col gap-4">
                     <FuriganaText
                       text={seg.japanese}
-                      furiganaItems={seg.furigana}
-                      mode={annotationMode}
+                      furiganaItems={seg.furigana ?? []}
+                      showFurigana={showFurigana}
+                      showRomaji={showRomaji}
+                      showKatakanaReading={showKatakanaReading}
+                      maxCharsPerLine={wordCardMode ? 0 : settings.maxCharsPerLine}
+                      layout={wordCardMode ? 'wordcard' : 'standard'}
+                      currentTime={currentTime}
+                      segmentStart={seg.start + captionOffset}
+                      segmentEnd={seg.end + captionOffset}
                       fontSize={settings.lyricsFontSize}
                       active={isActive}
                       onWordClick={(word, reading) => handleWordClick(word, reading, seg)}
@@ -480,7 +606,7 @@ function LearnContent() {
           {selectedSegment && (
             <div className="space-y-8 py-6">
               <div className="p-6 bg-muted/30 rounded-[2rem] border border-border">
-                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana} mode={annotationMode} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
+                <FuriganaText text={selectedSegment.japanese} furiganaItems={selectedSegment.furigana ?? []} showFurigana={showFurigana} showRomaji={showRomaji} showKatakanaReading={showKatakanaReading} maxCharsPerLine={wordCardMode ? 0 : settings.maxCharsPerLine} layout={wordCardMode ? 'wordcard' : 'standard'} currentTime={currentTime} segmentStart={selectedSegment.start + captionOffset} segmentEnd={selectedSegment.end + captionOffset} fontSize={22} active onWordClick={(word, reading) => handleWordClick(word, reading, selectedSegment)} />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
@@ -488,7 +614,7 @@ function LearnContent() {
                   <Button variant="link" size="sm" className="h-auto p-0 text-primary font-black text-[10px]" onClick={() => { addAllFromSegment(selectedSegment, v, videoTitle || "影片課程"); toast({ title: "已全部加入字典" }); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20); }}>全部加入</Button>
                 </div>
                 <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 no-scrollbar">
-                  {selectedSegment.furigana.map((item, fIdx) => {
+                  {(selectedSegment.furigana ?? []).map((item, fIdx) => {
                     const saved = dictContains(item.word, item.reading)
                     return (
                       <div key={fIdx} className="flex items-center justify-between p-5 bg-card rounded-2xl border hover:border-primary/30 transition-all">
@@ -506,6 +632,50 @@ function LearnContent() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 手動匯入字幕 ───────────────────────────────────────────────── */}
+      {isImporting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-background rounded-[2rem] p-8 flex flex-col items-center gap-4 shadow-2xl">
+            <Loader2 className="animate-spin text-primary" size={40} />
+            <p className="text-sm font-black uppercase tracking-widest text-primary animate-pulse">AI 標注中…</p>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+        <DialogContent className="rounded-[2.5rem] max-w-lg shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black tracking-tighter uppercase text-center">手動匯入字幕</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs text-muted-foreground font-medium">貼上 SRT 字幕或純文字歌詞</p>
+              <div className="flex gap-2">
+                <input type="file" ref={importFileRef} onChange={handleImportFileSelect} accept=".srt,.txt" className="hidden" />
+                <Button variant="secondary" size="sm" className="h-7 rounded-lg text-[10px] font-black gap-1.5" onClick={() => importFileRef.current?.click()}>
+                  <FileUp size={12} /> 從檔案載入
+                </Button>
+              </div>
+            </div>
+            <Textarea
+              placeholder={"貼上 SRT 字幕或日文歌詞...\n（支援純文字或 .srt 格式）"}
+              className="min-h-[200px] rounded-2xl text-sm font-medium p-4 bg-muted/20 border-none resize-none focus-visible:ring-primary/20"
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+            />
+          </div>
+          <DialogFooter className="sm:justify-center">
+            <Button
+              className="w-full h-12 rounded-2xl font-bold bg-primary hover:bg-primary/90"
+              disabled={!importText.trim() || isImporting}
+              onClick={handleManualImport}
+            >
+              確認匯入並分析
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -550,45 +720,67 @@ function LearnContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isExplaining || !!explainData} onOpenChange={(open) => !open && setExplainData(null)}>
-        <DialogContent className="rounded-[3rem] max-w-sm bg-background shadow-2xl overflow-y-auto max-h-[85vh] no-scrollbar">
-          <DialogHeader><DialogTitle className="text-center font-black text-2xl tracking-tighter uppercase">AI 深度解說</DialogTitle></DialogHeader>
-          {isExplaining ? (
-            <div className="py-20 flex flex-col items-center justify-center gap-6"><Loader2 className="animate-spin text-primary" size={48} /><p className="text-sm font-bold text-muted-foreground animate-pulse">正在解析文法奧秘...</p></div>
-          ) : explainData && (
-            <div className="space-y-8 py-4">
-              <section className="space-y-3">
-                <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><BookOpen size={14} /> 句子結構拆解</h3>
-                <div className="grid grid-cols-1 gap-2">
-                  {explainData.breakdown.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-muted/30 rounded-xl">
-                      <div className="flex flex-col">
-                        <span className="text-lg font-bold text-primary">{item.token}</span>
-                        {item.reading && <span className="text-[10px] font-medium text-muted-foreground">{item.reading}</span>}
+      {/* Floating AI explanation card — no dim overlay, slides up from bottom */}
+      {(isExplaining || !!explainData) && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setExplainData(null)} />
+          <div className="fixed bottom-20 left-0 right-0 z-50 px-4 flex justify-center pointer-events-none">
+            <div className="w-full max-w-sm pointer-events-auto bg-background rounded-[2rem] shadow-2xl border border-border overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+              <div className="flex flex-col items-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+              </div>
+              <div className="overflow-y-auto max-h-[55vh] no-scrollbar px-5 pb-6">
+                <h2 className="text-center font-black text-xl tracking-tighter uppercase mb-4 flex items-center justify-center gap-2">
+                  <Lightbulb size={16} className="text-primary" /> AI 深度解說
+                </h2>
+                {isExplaining ? (
+                  <div className="py-10 flex flex-col items-center gap-4">
+                    <Loader2 className="animate-spin text-primary" size={40} />
+                    <p className="text-sm font-bold text-muted-foreground animate-pulse">正在解析文法奧秘...</p>
+                  </div>
+                ) : explainData && (
+                  <div className="space-y-6">
+                    <section className="space-y-2">
+                      <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><BookOpen size={12} /> 句子結構拆解</h3>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {explainData.breakdown.map((item, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-muted/30 rounded-xl">
+                            <div className="flex flex-col">
+                              <span className="text-base font-bold text-primary">{item.token}</span>
+                              {item.reading && <span className="text-[10px] font-medium text-muted-foreground">{item.reading}</span>}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">{item.partOfSpeech}</span>
+                              <p className="text-xs font-medium mt-1">{item.meaning}</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">{item.partOfSpeech}</span>
-                        <p className="text-xs font-medium mt-1">{item.meaning}</p>
+                    </section>
+                    <section className="space-y-2">
+                      <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Lightbulb size={12} /> 關鍵文法點</h3>
+                      <div className="space-y-2">
+                        {explainData.grammarPoints.map((gp, i) => (
+                          <div key={i} className="p-3 bg-primary/5 rounded-2xl border border-primary/10">
+                            <p className="text-sm font-bold text-primary mb-1">{gp.point}</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{gp.explanation}</p>
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="space-y-3">
-                <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Lightbulb size={14} /> 關鍵文法點</h3>
-                <div className="space-y-3">
-                  {explainData.grammarPoints.map((gp, i) => (
-                    <div key={i} className="p-4 bg-primary/5 rounded-2xl border border-primary/10"><p className="text-sm font-bold text-primary mb-1">{gp.point}</p><p className="text-xs text-muted-foreground leading-relaxed">{gp.explanation}</p></div>
-                  ))}
-                </div>
-              </section>
-              {explainData.cultureNote && (
-                <section className="p-4 bg-orange-50 rounded-2xl border border-orange-100"><h3 className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-2">💡 語境補充</h3><p className="text-xs text-orange-900 leading-relaxed">{explainData.cultureNote}</p></section>
-              )}
+                    </section>
+                    {explainData.cultureNote && (
+                      <section className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-2xl border border-orange-100 dark:border-orange-800">
+                        <h3 className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-1">💡 語境補充</h3>
+                        <p className="text-xs text-orange-900 dark:text-orange-200 leading-relaxed">{explainData.cultureNote}</p>
+                      </section>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </>
+      )}
     </div>
   )
 }

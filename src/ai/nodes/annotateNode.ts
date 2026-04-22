@@ -27,9 +27,74 @@ export const SegmentSchema = z.object({
 });
 
 export type Segment    = z.infer<typeof SegmentSchema>;
-export type RawSeg     = { start: number; end: number; text: string };
+export type RawSeg     = {
+  start: number;
+  end:   number;
+  text:  string;
+  /** 預標注振假名（如 Cloud Run 已提供）；存在時可走 translateBatch 僅翻譯路徑 */
+  furigana?: z.infer<typeof FuriganaItemSchema>[];
+};
 
 // ── 工具 ──────────────────────────────────────────────────────────────────
+
+function isRateLimitError(err: any): boolean {
+  const msg: string = err?.message || '';
+  return (
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('429') ||
+    msg.includes('Quota') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('Too Many Requests')
+  );
+}
+
+function is503Error(err: any): boolean {
+  const msg: string = err?.message || '';
+  const code: number = err?.code || 0;
+  return (
+    code === 503 ||
+    msg.includes('503') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('Service Unavailable') ||
+    msg.includes('high demand')
+  );
+}
+
+/** 從 Google 錯誤訊息中解析建議等待時間（例：「Please retry in 19.1s」→ 20000ms）。 */
+function parseRetryAfterMs(err: any): number {
+  const msg: string = err?.message || err?.originalMessage || '';
+  const m = msg.match(/retry in ([\d.]+)s/i);
+  if (m) {
+    const sec = parseFloat(m[1]);
+    if (!isNaN(sec)) return Math.ceil(sec) * 1000 + 2000; // 加 2s 緩衝
+  }
+  return 20_000; // 預設 20s
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        if (isRateLimitError(err)) {
+          // Cap at 8s so we don't blow Vercel's 60s limit across multiple batches
+          const suggested = parseRetryAfterMs(err);
+          const waitMs    = Math.min(suggested, 8_000);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        if (is503Error(err)) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2_000));
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+  throw new Error('重試次數已耗盡');
+}
 
 function toTimestamp(sec: number): string {
   const m = Math.floor(sec / 60).toString().padStart(2, '0');
@@ -39,27 +104,28 @@ function toTimestamp(sec: number): string {
 
 // ── Groq JSON hints（Groq 不支援 Genkit native structured output）────────
 
-const ANNOTATED_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const ANNOTATED_HINT = `JSON only:
+{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
-const SEGMENTS_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"segments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const SEGMENTS_HINT = `JSON only:
+{"segments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
-// ── 標注批次（有字幕來源時使用）──────────────────────────────────────────
+// Matches CJK Unified Ideographs (kanji) — main block + Extension A
+const KANJI_RE = /[一-鿿㐀-䶿]/;
 
-export async function annotateBatch(
+type PromptCfg = Awaited<ReturnType<typeof getPromptConfig>>;
+
+// ── 核心標注（僅含漢字的片段；由 annotateBatch 呼叫）────────────────────
+
+async function _annotateKanji(
   batch:       RawSeg[],
   videoTitle:  string,
   sourceLabel: string,
   provider:    'google' | 'groq',
   apiKey:      string,
-  model:       string
+  model:       string,
+  cfg:         PromptCfg
 ): Promise<Segment[]> {
-  const cfg   = await getPromptConfig();
   const lines = batch
     .map(c => `[${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
     .join('\n');
@@ -91,17 +157,124 @@ ${cfg.translationRules}`;
   }
 
   const ai = createAi(provider, apiKey);
-  const { output } = await ai.generate({
+  const { output } = await withRetry(() => ai.generate({
     model,
     output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
     prompt,
-  });
+  }));
   if (!output?.annotatedSegments) throw new Error('AI 標注失敗');
   return output.annotatedSegments.map((seg, i) => ({
     ...seg,
     start: batch[i]?.start ?? seg.start,
     end:   batch[i]?.end   ?? seg.end,
   }));
+}
+
+// ── 標注批次（有字幕來源時使用）──────────────────────────────────────────
+
+export async function annotateBatch(
+  batch:       RawSeg[],
+  videoTitle:  string,
+  sourceLabel: string,
+  provider:    'google' | 'groq',
+  apiKey:      string,
+  model:       string
+): Promise<Segment[]> {
+  const cfg = await getPromptConfig();
+
+  // Split: pure-kana/English segments skip furigana annotation (cheaper path)
+  const kanjiIdxs: number[] = [];
+  const kanaIdxs:  number[] = [];
+  batch.forEach((s, i) => (KANJI_RE.test(s.text) ? kanjiIdxs : kanaIdxs).push(i));
+
+  const kanjiSub = kanjiIdxs.map(i => batch[i]);
+  const kanaSub  = kanaIdxs.map(i => ({ ...batch[i], furigana: [] }));
+
+  const [kanjiSegs, kanaSegs] = await Promise.all([
+    kanjiSub.length > 0
+      ? _annotateKanji(kanjiSub, videoTitle, sourceLabel, provider, apiKey, model, cfg)
+      : Promise.resolve([] as Segment[]),
+    kanaSub.length > 0
+      ? translateBatch(kanaSub, videoTitle, sourceLabel, provider, apiKey, model)
+      : Promise.resolve([] as Segment[]),
+  ]);
+
+  // Merge back in original order
+  const result = new Array<Segment>(batch.length);
+  kanjiIdxs.forEach((origIdx, subIdx) => { result[origIdx] = kanjiSegs[subIdx]; });
+  kanaIdxs.forEach((origIdx, subIdx)  => { result[origIdx] = kanaSegs[subIdx]; });
+  return result;
+}
+
+// ── 僅翻譯批次（已有預標注振假名時使用，省去一次標注 AI 呼叫）────────────
+
+const TRANSLATIONS_HINT = `JSON only（index對應輸入索引）:
+{"translations":[{"index":0,"translation":"翻譯"}]}`;
+
+const TranslationsSchema = z.object({
+  translations: z.array(z.object({
+    index:       z.number(),
+    translation: z.string(),
+  })),
+});
+
+/**
+ * 當字幕來源已提供振假名（例如 Cloud Run 轉錄服務）時使用。
+ * 僅向 AI 請求繁體中文翻譯，保留預先標注的 furigana，明顯加速並省 API 配額。
+ */
+export async function translateBatch(
+  batch:       RawSeg[],
+  videoTitle:  string,
+  sourceLabel: string,
+  provider:    'google' | 'groq',
+  apiKey:      string,
+  model:       string
+): Promise<Segment[]> {
+  const cfg   = await getPromptConfig();
+  const lines = batch
+    .map((c, i) => `[${i}] ${c.text}`)
+    .join('\n');
+
+  const prompt = `你是一位日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞片段（已含振假名，僅需翻譯）：
+
+${lines}
+
+請將每一段翻譯為繁體中文，回傳時以 index 對應原輸入的索引（從 0 開始）。
+
+${cfg.translationRules}`;
+
+  const applyTranslations = (translations: { index: number; translation: string }[]): Segment[] => {
+    const byIndex = new Map(translations.map(t => [t.index, t.translation]));
+    return batch.map((raw, i) => ({
+      id:          '',
+      start:       raw.start,
+      end:         raw.end,
+      japanese:    raw.text,
+      translation: byIndex.get(i) ?? '',
+      furigana:    raw.furigana ?? [],
+    }));
+  };
+
+  if (provider === 'groq') {
+    const raw = await groqGenerate(apiKey, model, [
+      { role: 'system', content: cfg.systemMessage },
+      { role: 'user',   content: prompt + '\n\n' + TRANSLATIONS_HINT },
+    ]);
+    let json: unknown;
+    try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
+    const r = TranslationsSchema.safeParse(json);
+    if (!r.success) throw new Error('Groq 翻譯輸出格式不符合預期，請稍後再試。');
+    return applyTranslations(r.data.translations);
+  }
+
+  const ai = createAi(provider, apiKey);
+  const { output } = await withRetry(() => ai.generate({
+    model,
+    output: { schema: TranslationsSchema },
+    prompt,
+  }));
+  if (!output?.translations) throw new Error('AI 翻譯失敗');
+  return applyTranslations(output.translations);
 }
 
 // ── 完整 AI 生成（無任何字幕來源時使用）──────────────────────────────────
@@ -136,11 +309,11 @@ ${cfg.annotationRules}
   }
 
   const ai = createAi(provider, apiKey);
-  const { output } = await ai.generate({
+  const { output } = await withRetry(() => ai.generate({
     model,
     output: { schema: z.object({ segments: z.array(SegmentSchema) }) },
     prompt,
-  });
+  }));
   if (!output?.segments) throw new Error('AI 生成失敗');
   return output.segments;
 }

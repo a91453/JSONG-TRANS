@@ -73,7 +73,7 @@ async function generateWithRetry(
       return await ai.generate(options);
     } catch (err: any) {
       if (is503(err.message || '', err.code) && attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, (attempt + 1) * 4000));
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
         continue;
       }
       throw err;
@@ -83,15 +83,11 @@ async function generateWithRetry(
 }
 
 // ── JSON hints for Groq structured output ───────────────────────────────────
-const SEGMENTS_JSON_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"segments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const SEGMENTS_JSON_HINT = `JSON only:
+{"segments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
-const ANNOTATED_JSON_HINT = `
-你必須僅回傳一個合法的 JSON 物件（不要有任何說明文字）：
-{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"日文原文","translation":"繁體中文翻譯","furigana":[{"word":"漢字單元","reading":"平假名讀音"}]}]}
-`;
+const ANNOTATED_JSON_HINT = `JSON only:
+{"annotatedSegments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
 function parseGroqSegments(raw: string): z.infer<typeof SegmentSchema>[] {
   let json: any;
@@ -119,35 +115,19 @@ function buildAnnotationPrompt(
     .map(c => `[${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
     .join('\n');
 
-  return `你是一位日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞：
+  return `你是日語語言學專家。以下是歌曲「${videoTitle}」的${sourceLabel}歌詞：
 
 ${captionLines}
 
-請嚴格按照時間戳與文字，為每一段進行以下處理：
-
-【振假名標注規則】
-1. 漢字及其連動的活用語尾必須視為一個「單一 word」：
-   - 正確：word:"去られ", reading:"さられ"
-   - 正確：word:"笑った", reading:"わらった"
-   - 嚴禁拆分（不可將"去"與"られ"分開）。
-2. 日文原文中每一個漢字都必須在 furigana 陣列中有對應項目。
-3. reading 必須是純平假名。
-
-【翻譯規則】
-- 繁體中文翻譯，保持詩意與語境。
-- 保留原始 start/end 時間戳，id 填入空字串。`;
+振假名規則：①漢字+活用語尾算一個word（去られ→さられ、笑った→わらった）②原文每個漢字（含時・人・日・年・事・気等）必須有furigana項目③reading純平假名
+翻譯規則：繁體中文，保詩意，id填空字串，保留start/end`;
 }
 
 function buildFullGeneratePrompt(videoId: string, videoTitle: string): string {
-  return `你是一位日語語言學專家。請解析 YouTube 影片 ID: ${videoId}（標題：${videoTitle}）的完整歌詞內容。
+  return `你是日語語言學專家。請生成 YouTube ID:${videoId}（${videoTitle}）的完整歌詞逐段字幕。
 
-請生成逐字幕，每段包含開始/結束時間（秒）、日文原文、振假名、繁體中文翻譯。
-
-【振假名標注規則】
-1. 漢字與活用語尾視為一個 word（去られ→さられ、笑った→わらった）。
-2. 每個漢字都必須有對應的 furigana 項目。
-3. reading 為純平假名。
-4. id 欄位填入空字串。`;
+振假名規則：①漢字+活用語尾算一個word（去られ→さられ、笑った→わらった）②每個漢字（含時・人・日・年・事・気等）必須有furigana項目③reading純平假名④id填空字串
+翻譯規則：繁體中文，保詩意`;
 }
 
 // ── 主流程 ───────────────────────────────────────────────────────────────────
@@ -181,7 +161,7 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
       : null;
 
     // ── 步驟 2：決定來源 ─────────────────────────────────────────────────
-    type Source = 'lrclib' | 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai';
+    type Source = 'lrclib' | 'youtube-official' | 'youtube-auto' | 'external' | 'manual' | 'whisper-groq' | 'genkit-ai';
     let expectedSource: Source;
     let prompt: string;
 
@@ -189,13 +169,13 @@ export async function analyzeVideoAction(input: z.infer<typeof AnalyzeVideoInput
       // SmartSubtitles 成功（含 Whisper、YouTube、LrcLib、Cloud Run）
       const srcMap: Record<string, Source> = {
         'whisper-groq':      'whisper-groq',
-        'youtube-official':  'server-sub',
-        'youtube-auto':      'server-sub-auto',
+        'youtube-official':  'youtube-official',
+        'youtube-auto':      'youtube-auto',
         'lrclib':            'lrclib',
-        'external':          'server-sub',
-        'manual':            'server-sub',
+        'external':          'external',
+        'manual':            'manual',
       };
-      expectedSource = srcMap[subtitleResult.source] ?? 'server-sub';
+      expectedSource = srcMap[subtitleResult.source] ?? 'youtube-official';
 
       const sourceLabel = subtitleResult.source === 'whisper-groq'    ? 'Whisper 語音聽寫'
                         : subtitleResult.source === 'lrclib'           ? 'LrcLib 同步'
@@ -296,7 +276,7 @@ ${segmentLines}`;
       finalSegments = parseGroqAnnotated(raw);
     } else {
       const ai = createAi(provider, userApiKey);
-      const { output } = await ai.generate({
+      const { output } = await generateWithRetry(ai, {
         model: modelId,
         output: { schema: z.object({ annotatedSegments: z.array(SegmentSchema) }) },
         prompt: annotationPrompt,
@@ -314,6 +294,91 @@ ${segmentLines}`;
   } catch (error: any) {
     console.error('Error in annotateSegmentsAction:', error);
     const msg: string = error.message || '';
+    const code: number = error.code || 0;
+    if (is503(msg, code)) throw new Error('AI 服務目前流量過高，請稍候幾秒後重試。');
+    if (msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED')) throw new Error('API 配額已滿，請稍候 30 秒再試。');
     throw new Error(msg || 'AI 標注失敗，請檢查 API Key 或稍後再試。');
+  }
+}
+
+// ── 雙語 SRT 匯入：僅標注振假名，保留使用者提供的翻譯 ─────────────────────
+
+const FURIGANA_ONLY_HINT = `JSON only（index對應輸入索引）:
+{"items":[{"index":0,"furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
+
+export async function annotateFuriganaOnlyAction(
+  segments: Array<{ start: number; end: number; text: string; translation: string }>,
+  config?: { provider?: 'google' | 'groq'; apiKey?: string; model?: string }
+) {
+  const provider   = config?.provider  || 'google';
+  const userApiKey = config?.apiKey;
+  if (!userApiKey) throw new Error(`請提供 ${provider === 'google' ? 'Gemini' : 'Groq'} API Key。`);
+
+  const FuriganaOnlySchema = z.object({
+    items: z.array(z.object({
+      index:    z.number(),
+      furigana: z.array(FuriganaItemSchema),
+    })),
+  });
+
+  try {
+    const modelId     = config?.model
+      || (provider === 'google' ? 'googleai/gemini-2.5-flash' : 'openai/llama-3.3-70b-versatile');
+    const segmentLines = segments
+      .map((s, i) => `[${i}] ${s.text}`)
+      .join('\n');
+
+    const prompt = `你是一位日語語言學專家。以下是已含翻譯的日文歌詞（僅需標注振假名）：
+
+${segmentLines}
+
+【振假名規則】漢字與活用語尾視為一個 word（去られ→さられ、笑った→わらった），reading 為純平假名。每個漢字都必須有對應項目。`;
+
+    let furiganaItems: { index: number; furigana: { word: string; reading: string }[] }[];
+
+    if (provider === 'groq') {
+      const raw = await groqGenerate(userApiKey, modelId, [
+        { role: 'system', content: '你是日語語言學專家，只回傳 JSON，不輸出任何說明文字。' },
+        { role: 'user',   content: prompt + '\n\n' + FURIGANA_ONLY_HINT },
+      ]);
+      let json: unknown;
+      try { json = JSON.parse(raw); } catch { throw new Error('Groq 回傳的 JSON 格式無效，請稍後再試。'); }
+      const r = FuriganaOnlySchema.safeParse(json);
+      if (!r.success) throw new Error('Groq 輸出格式不符合預期，請稍後再試。');
+      furiganaItems = r.data.items;
+    } else {
+      const ai = createAi(provider, userApiKey);
+      const { output } = await generateWithRetry(ai, {
+        model:  modelId,
+        output: { schema: FuriganaOnlySchema },
+        prompt,
+      });
+      if (!output?.items) throw new Error('AI 振假名標注失敗');
+      furiganaItems = output.items;
+    }
+
+    const byIndex = new Map(furiganaItems.map(f => [f.index, f.furigana]));
+    const finalSegments = segments.map((s, i) => ({
+      id:          crypto.randomUUID(),
+      start:       s.start,
+      end:         s.end,
+      japanese:    s.text,
+      translation: s.translation,
+      furigana:    byIndex.get(i) ?? [],
+    }));
+
+    return {
+      videoId:  'custom_' + Date.now(),
+      duration: segments[segments.length - 1]?.end || 0,
+      segments: finalSegments,
+      source:   'genkit-ai' as const,
+    };
+  } catch (error: any) {
+    console.error('Error in annotateFuriganaOnlyAction:', error);
+    const msg: string = error.message || '';
+    const code: number = error.code || 0;
+    if (is503(msg, code)) throw new Error('AI 服務目前流量過高，請稍候幾秒後重試。');
+    if (msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED')) throw new Error('API 配額已滿，請稍候 30 秒再試。');
+    throw new Error(msg || 'AI 振假名標注失敗，請檢查 API Key 或稍後再試。');
   }
 }

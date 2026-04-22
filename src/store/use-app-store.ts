@@ -17,7 +17,12 @@ import { convertToRomaji } from '@/lib/romaji-utils';
 interface SettingsState {
   themeMode: 'system' | 'light' | 'dark';
   lyricsFontSize: number;
-  defaultAnnotation: 'furigana' | 'romaji' | 'both' | 'none';
+  // 標注顯示偏好（可複選；預設 furigana 開、romaji 關、katakana 讀音開）
+  showFurigana: boolean;
+  showRomaji: boolean;
+  showKatakanaReading: boolean;
+  maxCharsPerLine: number;   // 0 = 不限制（standard 模式用）
+  wordCardMode: boolean;     // true = 彩色字卡模式
   loopCount: number;
   autoPlayOnTap: boolean;
   showTranslation: boolean;
@@ -27,9 +32,16 @@ interface SettingsState {
   geminiModel: string;
   groqApiKey: string;
   groqModel: string;
+  // Cloud Run 轉錄服務（使用者自備資源）
+  cloudRunGroqApiKey: string;
+  cloudRunCookieContent: string;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setLyricsFontSize: (size: number) => void;
-  setDefaultAnnotation: (mode: 'furigana' | 'romaji' | 'both' | 'none') => void;
+  setShowFurigana: (v: boolean) => void;
+  setShowRomaji: (v: boolean) => void;
+  setShowKatakanaReading: (v: boolean) => void;
+  setMaxCharsPerLine: (n: number) => void;
+  setWordCardMode: (v: boolean) => void;
   setLoopCount: (count: number) => void;
   setAutoPlayOnTap: (enabled: boolean) => void;
   setShowTranslation: (enabled: boolean) => void;
@@ -38,6 +50,8 @@ interface SettingsState {
   setGeminiModel: (model: string) => void;
   setGroqApiKey: (key: string) => void;
   setGroqModel: (model: string) => void;
+  setCloudRunGroqApiKey: (key: string) => void;
+  setCloudRunCookieContent: (content: string) => void;
   resetApiKeys: () => void;
 }
 
@@ -46,7 +60,11 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       themeMode: 'system',
       lyricsFontSize: 15,
-      defaultAnnotation: 'furigana',
+      showFurigana: true,
+      showRomaji: false,
+      showKatakanaReading: true,
+      maxCharsPerLine: 0,
+      wordCardMode: true,
       loopCount: 3,
       autoPlayOnTap: true,
       showTranslation: true,
@@ -55,9 +73,15 @@ export const useSettingsStore = create<SettingsState>()(
       geminiModel: 'googleai/gemini-2.5-flash',
       groqApiKey: '',
       groqModel: 'openai/llama-3.3-70b-versatile', // mixtral-8x7b-32768 已於 2025 年下架
+      cloudRunGroqApiKey: '',
+      cloudRunCookieContent: '',
       setThemeMode: (themeMode) => set({ themeMode }),
       setLyricsFontSize: (lyricsFontSize) => set({ lyricsFontSize }),
-      setDefaultAnnotation: (defaultAnnotation) => set({ defaultAnnotation }),
+      setShowFurigana: (showFurigana) => set({ showFurigana }),
+      setShowRomaji: (showRomaji) => set({ showRomaji }),
+      setShowKatakanaReading: (showKatakanaReading) => set({ showKatakanaReading }),
+      setMaxCharsPerLine: (maxCharsPerLine) => set({ maxCharsPerLine }),
+      setWordCardMode: (wordCardMode) => set({ wordCardMode }),
       setLoopCount: (loopCount) => set({ loopCount }),
       setAutoPlayOnTap: (autoPlayOnTap) => set({ autoPlayOnTap }),
       setShowTranslation: (showTranslation) => set({ showTranslation }),
@@ -66,9 +90,28 @@ export const useSettingsStore = create<SettingsState>()(
       setGeminiModel: (geminiModel) => set({ geminiModel }),
       setGroqApiKey: (groqApiKey) => set({ groqApiKey }),
       setGroqModel: (groqModel) => set({ groqModel }),
-      resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '' }),
+      setCloudRunGroqApiKey: (cloudRunGroqApiKey) => set({ cloudRunGroqApiKey }),
+      setCloudRunCookieContent: (cloudRunCookieContent) => set({ cloudRunCookieContent }),
+      resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '', cloudRunGroqApiKey: '', cloudRunCookieContent: '' }),
     }),
-    { name: 'nihongo-settings-storage-v5' }
+    {
+      name: 'nihongo-settings-storage-v5',
+      version: 1,
+      // v0 → v1：把單一 defaultAnnotation enum 轉為三個獨立 boolean
+      migrate: (persistedState: any, version: number) => {
+        if (version < 1) {
+          const mode = persistedState?.defaultAnnotation ?? 'furigana';
+          const { defaultAnnotation, ...rest } = persistedState ?? {};
+          return {
+            ...rest,
+            showFurigana:        mode === 'furigana' || mode === 'both',
+            showRomaji:          mode === 'romaji'   || mode === 'both',
+            showKatakanaReading: true,
+          };
+        }
+        return persistedState;
+      },
+    }
   )
 );
 
@@ -115,7 +158,7 @@ export const useDictionaryStore = create<DictionaryState>()(
         set({ entries: [newEntry, ...entries] });
       },
       addAllFromSegment: (segment, videoId, songTitle) => {
-        segment.furigana.forEach(item => {
+        (segment.furigana ?? []).forEach(item => {
           get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
         });
       },
@@ -148,7 +191,13 @@ export const useHistoryStore = create<HistoryState>()(
       items: [],
       results: {},
       saveResult: (response, title, artist) => set(state => {
-        const videoId = response.videoId;
+        const videoId  = response.videoId;
+        const existing = state.results[videoId];
+        // 若現有結果比新結果更完整（更多段落），拒絕覆蓋（防止失敗結果覆蓋成功結果）
+        // forceRefresh 路徑會先呼叫 removeByVideoId，使 existing 為 undefined，故不受影響
+        if (existing && existing.segments.length > response.segments.length) {
+          return state;
+        }
         const newMeta: VideoHistoryMeta = {
           id: crypto.randomUUID(),
           videoId,
