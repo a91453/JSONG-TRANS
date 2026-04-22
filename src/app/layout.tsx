@@ -8,6 +8,9 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 export const metadata: Metadata = {
   title: 'NihongoPath - 沉浸式日語學習 (v1.0)',
   description: '透過沉浸式影片、互動遊戲和結構化練習，輕鬆掌握日語。',
+  verification: {
+    google: 'W1nrca4bY8TVVzI4SC7FM0hcyFwZWDyGdxxGBQ5GL8M',
+  },
 };
 
 export const viewport: Viewport = {
