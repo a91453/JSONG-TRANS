@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: 'NihongoPath 隱私權政策：說明我們蒐集哪些資料、如何使用，以及你擁有的權利。',
 };
 
-const LAST_UPDATED = '2025 年 4 月 22 日';
+const LAST_UPDATED = '2026 年 4 月 22 日';
 const CONTACT_EMAIL = 'qwertyuiopasdfghjkl96150@gmail.com';
 
 export default function PrivacyPage() {

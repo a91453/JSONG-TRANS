@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: 'NihongoPath 服務條款：說明本服務的使用規範、智慧財產權與免責事項。',
 };
 
-const LAST_UPDATED = '2025 年 4 月 22 日';
+const LAST_UPDATED = '2026 年 4 月 22 日';
 const CONTACT_EMAIL = 'qwertyuiopasdfghjkl96150@gmail.com';
 
 export default function TermsPage() {
