@@ -1,6 +1,7 @@
 
 "use client"
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import { 
   useSettingsStore, 
@@ -805,6 +806,13 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </section>
+      </div>
+
+      {/* Privacy policy link */}
+      <div className="mt-6 pb-4 text-center">
+        <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+          隱私權政策
+        </Link>
       </div>
     </div>
   );
