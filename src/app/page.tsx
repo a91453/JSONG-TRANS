@@ -198,7 +198,10 @@ export default function HomePage() {
     <div className="min-h-full bg-background px-6 pt-6 space-y-8 max-w-2xl mx-auto pb-24">
       <header className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-4xl font-headline font-bold text-foreground">學習中心</h1>
+          <div>
+            <p className="text-[11px] font-black text-primary uppercase tracking-[0.2em]">NihongoPath</p>
+            <h1 className="text-4xl font-headline font-bold text-foreground mt-0.5">學習中心</h1>
+          </div>
           <div className="flex items-center gap-1 bg-primary/10 px-3 py-1 rounded-full">
             <Zap size={14} className="text-primary fill-primary" />
             <span className="text-[10px] font-black text-primary uppercase">Pro v1.1</span>
@@ -413,15 +416,18 @@ export default function HomePage() {
       )}
 
       {/* Legal footer — required for Google OAuth consent screen verification */}
-      <div className="mt-8 pb-6 text-center flex items-center justify-center gap-4">
-        <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
-          隱私權政策
-        </Link>
-        <span className="text-muted-foreground/30">·</span>
-        <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
-          服務條款
-        </Link>
-      </div>
+      <footer className="mt-8 pb-6 text-center space-y-2">
+        <p className="text-xs font-black text-foreground/60 uppercase tracking-[0.25em]">NihongoPath</p>
+        <div className="flex items-center justify-center gap-4">
+          <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+            隱私權政策
+          </Link>
+          <span className="text-muted-foreground/30">·</span>
+          <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium">
+            服務條款
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }
