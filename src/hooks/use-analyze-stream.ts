@@ -12,7 +12,7 @@
  *   4. 使用者跳過 → dismissGoogleAuth() 關閉 Modal，改走一般 analyzeVideoAction 路徑
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { AnalyzeResponse, Segment } from '@/types';
 import { useHistoryStore, useSettingsStore } from '@/store/use-app-store';
 import { fetchYouTubeInfo } from '@/lib/youtube';
@@ -34,10 +34,13 @@ export function useAnalyzeStream() {
   const router           = useRouter();
   const historyStore     = useHistoryStore();
   const settings         = useSettingsStore();
-  const isLoadingRef       = useRef(false);
+  const isLoadingRef         = useRef(false);
   // Ref 版本的 needGoogleAuth，供 useCallback 內的 async 閉包讀取（避免 stale state）
-  const needGoogleAuthRef  = useRef(false);
+  const needGoogleAuthRef    = useRef(false);
+  const abortControllerRef   = useRef<AbortController | null>(null);
   const { signIn, getValidToken, isSigningIn } = useGoogleAuth();
+
+  useEffect(() => () => { abortControllerRef.current?.abort(); }, []);
 
   // ── 核心分析函式 ────────────────────────────────────────────────────────────
 
@@ -68,6 +71,10 @@ export function useAnalyzeStream() {
       router.push('/settings');
       return;
     }
+
+    abortControllerRef.current?.abort();
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
 
     setIsLoading(true);
     isLoadingRef.current    = true;
@@ -110,6 +117,7 @@ export function useAnalyzeStream() {
       // ── SSE 串流 ──────────────────────────────────────────────────────
       const res = await fetch('/api/analyze-stream', {
         method:  'POST',
+        signal:  ac.signal,
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           videoId,
@@ -255,6 +263,7 @@ export function useAnalyzeStream() {
       }
 
     } catch (error: any) {
+      if (error.name === 'AbortError') return;
       const msg = error.message || '';
       if (msg.includes('location is not supported') || msg.includes('USER_LOCATION') || msg.includes('INVALID_ARGUMENT')) {
         setErrorMessage('您的 Gemini API Key 所在地區不支援免費版，請至 Google AI Studio 啟用計費後再試，或改用 Groq API Key。');

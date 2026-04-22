@@ -131,10 +131,14 @@ function LearnContent() {
     if (Date.now() - userScrolledAtRef.current < 3000) return;
     // Prevent double-scroll while smooth animation is still running
     if (Date.now() - lastAutoScrollAtRef.current < 700) return;
-    const eTop    = el.offsetTop;
+    // Use getBoundingClientRect for position relative to container (offsetTop is relative to offsetParent, which may not be the scroll container)
+    const eRect   = el.getBoundingClientRect();
+    const cRect   = container.getBoundingClientRect();
     const eHeight = el.offsetHeight;
     const cHeight = container.clientHeight;
     const cTop    = container.scrollTop;
+    // Element's position from the top of the container's scrollable content
+    const eTop    = eRect.top - cRect.top + cTop;
     // Safe zone: top 20% to bottom 65% — within this range, don't scroll
     const safeTop    = cTop + cHeight * 0.20;
     const safeBottom = cTop + cHeight * 0.65;

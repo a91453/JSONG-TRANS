@@ -110,17 +110,22 @@ const ANNOTATED_HINT = `JSON only:
 const SEGMENTS_HINT = `JSON only:
 {"segments":[{"id":"","start":0,"end":5,"japanese":"原文","translation":"翻譯","furigana":[{"word":"漢字","reading":"よみ"}]}]}`;
 
-// ── 標注批次（有字幕來源時使用）──────────────────────────────────────────
+// Matches CJK Unified Ideographs (kanji) — main block + Extension A
+const KANJI_RE = /[一-鿿㐀-䶿]/;
 
-export async function annotateBatch(
+type PromptCfg = Awaited<ReturnType<typeof getPromptConfig>>;
+
+// ── 核心標注（僅含漢字的片段；由 annotateBatch 呼叫）────────────────────
+
+async function _annotateKanji(
   batch:       RawSeg[],
   videoTitle:  string,
   sourceLabel: string,
   provider:    'google' | 'groq',
   apiKey:      string,
-  model:       string
+  model:       string,
+  cfg:         PromptCfg
 ): Promise<Segment[]> {
-  const cfg   = await getPromptConfig();
   const lines = batch
     .map(c => `[${toTimestamp(c.start)}-${toTimestamp(c.end)}] ${c.text}`)
     .join('\n');
@@ -163,6 +168,42 @@ ${cfg.translationRules}`;
     start: batch[i]?.start ?? seg.start,
     end:   batch[i]?.end   ?? seg.end,
   }));
+}
+
+// ── 標注批次（有字幕來源時使用）──────────────────────────────────────────
+
+export async function annotateBatch(
+  batch:       RawSeg[],
+  videoTitle:  string,
+  sourceLabel: string,
+  provider:    'google' | 'groq',
+  apiKey:      string,
+  model:       string
+): Promise<Segment[]> {
+  const cfg = await getPromptConfig();
+
+  // Split: pure-kana/English segments skip furigana annotation (cheaper path)
+  const kanjiIdxs: number[] = [];
+  const kanaIdxs:  number[] = [];
+  batch.forEach((s, i) => (KANJI_RE.test(s.text) ? kanjiIdxs : kanaIdxs).push(i));
+
+  const kanjiSub = kanjiIdxs.map(i => batch[i]);
+  const kanaSub  = kanaIdxs.map(i => ({ ...batch[i], furigana: [] }));
+
+  const [kanjiSegs, kanaSegs] = await Promise.all([
+    kanjiSub.length > 0
+      ? _annotateKanji(kanjiSub, videoTitle, sourceLabel, provider, apiKey, model, cfg)
+      : Promise.resolve([] as Segment[]),
+    kanaSub.length > 0
+      ? translateBatch(kanaSub, videoTitle, sourceLabel, provider, apiKey, model)
+      : Promise.resolve([] as Segment[]),
+  ]);
+
+  // Merge back in original order
+  const result = new Array<Segment>(batch.length);
+  kanjiIdxs.forEach((origIdx, subIdx) => { result[origIdx] = kanjiSegs[subIdx]; });
+  kanaIdxs.forEach((origIdx, subIdx)  => { result[origIdx] = kanaSegs[subIdx]; });
+  return result;
 }
 
 // ── 僅翻譯批次（已有預標注振假名時使用，省去一次標注 AI 呼叫）────────────
