@@ -614,7 +614,7 @@ function LearnContent() {
                   <Button variant="link" size="sm" className="h-auto p-0 text-primary font-black text-[10px]" onClick={() => { addAllFromSegment(selectedSegment, v, videoTitle || "影片課程"); toast({ title: "已全部加入字典" }); if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20); }}>全部加入</Button>
                 </div>
                 <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 no-scrollbar">
-                  {(selectedSegment.furigana ?? []).map((item, fIdx) => {
+                  {(selectedSegment.furigana ?? []).filter(item => item.word && item.reading).map((item, fIdx) => {
                     const saved = dictContains(item.word, item.reading)
                     return (
                       <div key={fIdx} className="flex items-center justify-between p-5 bg-card rounded-2xl border hover:border-primary/30 transition-all">

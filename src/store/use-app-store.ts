@@ -132,6 +132,7 @@ export const useDictionaryStore = create<DictionaryState>()(
     (set, get) => ({
       entries: [],
       addEntry: (word, reading, videoId, songTitle, sentence, translation) => {
+        if (!word || !reading) return;
         const { entries } = get();
         const existingIdx = entries.findIndex(e => e.word === word && e.reading === reading);
         const source: WordSource = { id: crypto.randomUUID(), videoId, songTitle, sentence, translation };
@@ -158,9 +159,11 @@ export const useDictionaryStore = create<DictionaryState>()(
         set({ entries: [newEntry, ...entries] });
       },
       addAllFromSegment: (segment, videoId, songTitle) => {
-        (segment.furigana ?? []).forEach(item => {
-          get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
-        });
+        (segment.furigana ?? [])
+          .filter(item => item.word && item.reading)
+          .forEach(item => {
+            get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
+          });
       },
       removeEntry: (id) => set(state => ({
         entries: state.entries.filter(e => e.id !== id),
