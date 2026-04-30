@@ -31,14 +31,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { 
-  Moon, 
-  Sun, 
-  Monitor, 
-  Type, 
-  Globe, 
-  Download, 
-  Trash2, 
+import {
+  Moon,
+  Sun,
+  Monitor,
+  Type,
+  Globe,
+  Download,
+  Trash2,
   Key,
   BrainCircuit,
   Eye,
@@ -57,7 +57,15 @@ import {
   FileText,
   Loader2,
   XCircle,
+  Cloud,
+  CloudUpload,
+  CloudDownload,
+  RefreshCw,
 } from "lucide-react";
+import { useDictionarySync } from "@/hooks/use-dictionary-sync";
+import { useGoogleAuth } from "@/hooks/use-google-auth";
+import { getFirebaseAuth } from "@/lib/firebase-client";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -689,6 +697,12 @@ export default function SettingsPage() {
           </>} {/* end showAdvanced */}
         </section>
 
+        {/* ── 字典雲端同步（需 Google 登入）──────────────────────────── */}
+        <section className="space-y-3">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1">跨裝置同步</h2>
+          <DictionarySyncCard />
+        </section>
+
         <section className="space-y-3">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1">外觀介面</h2>
           <Card className="rounded-2xl border shadow-sm overflow-hidden">
@@ -864,5 +878,181 @@ export default function SettingsPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+// ── Dictionary 雲端同步卡片 ───────────────────────────────────────────────
+function DictionarySyncCard() {
+  const { busy, error, upload, download, fetchStatus } = useDictionarySync();
+  const { signIn, isSigningIn } = useGoogleAuth();
+  const dictStore = useDictionaryStore();
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [cloud, setCloud] = useState<{ hasCloud: boolean; updatedAt: number | null; entryCount: number | null } | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 初次掛載 + auth 變動 → 確認登入狀態並抓雲端狀態
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      setSignedIn(false);
+      return;
+    }
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      setSignedIn(!!user);
+      setUserEmail(user?.email ?? null);
+      if (user) {
+        const s = await fetchStatus();
+        setCloud(s);
+      } else {
+        setCloud(null);
+      }
+    });
+    return () => unsub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    const s = await fetchStatus();
+    setCloud(s);
+    setRefreshing(false);
+  };
+
+  const onUpload = async () => {
+    setStatusMsg(null);
+    const r = await upload();
+    if (r.ok) {
+      setStatusMsg({ kind: 'ok', text: `✅ 上傳成功（${dictStore.entries.length} 字）` });
+      refresh();
+    } else if (error) {
+      setStatusMsg({ kind: 'err', text: error });
+    }
+  };
+
+  const onDownloadMerge = async () => {
+    setStatusMsg(null);
+    const r = await download('merge');
+    if (r.ok) setStatusMsg({ kind: 'ok', text: `✅ 已合併 ${r.processed ?? 0} 筆雲端條目（保留本地新增）` });
+    else if (error) setStatusMsg({ kind: 'err', text: error });
+  };
+
+  const onDownloadReplace = async () => {
+    if (!confirm('確定要用雲端資料覆蓋本地字典嗎？\n本地比雲端多出的條目會被刪除。')) return;
+    setStatusMsg(null);
+    const r = await download('replace');
+    if (r.ok) setStatusMsg({ kind: 'ok', text: `✅ 已用雲端覆蓋本地（共 ${r.processed ?? 0} 字）` });
+    else if (error) setStatusMsg({ kind: 'err', text: error });
+  };
+
+  const fmtDate = (ms: number | null) => {
+    if (!ms) return '尚未上傳';
+    const d = new Date(ms);
+    return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <Card className="rounded-2xl border bg-muted/10">
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Cloud size={16} className="text-primary" />
+          <h3 className="text-xs font-bold uppercase tracking-widest">字典雲端同步</h3>
+        </div>
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          將本地字典同步到 Firestore，跨裝置共用同一份學習資料。資料以 Google 帳號隔離，只有你能存取。
+        </p>
+
+        {signedIn === false && (
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-300 text-[10px] text-amber-800 space-y-2">
+            <p className="font-bold">尚未登入 Google 帳號</p>
+            <p className="opacity-80">請先登入才能使用同步功能（同時需要 Firestore 已配置）。</p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isSigningIn}
+              onClick={() => signIn().catch(() => {})}
+              className="rounded-xl gap-2 mt-1"
+            >
+              {isSigningIn ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />}
+              使用 Google 登入
+            </Button>
+          </div>
+        )}
+
+        {signedIn && (
+          <>
+            {/* 帳號 + 狀態列 */}
+            <div className="space-y-2 p-3 rounded-xl bg-background/70 border">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase">帳號</p>
+                  <p className="text-xs font-mono truncate">{userEmail ?? '已登入'}</p>
+                </div>
+                <Button size="icon" variant="ghost" onClick={refresh} disabled={refreshing} className="h-7 w-7 rounded-full">
+                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t">
+                <div>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase">本地</p>
+                  <p className="text-sm font-bold">{dictStore.entries.length} 字</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase">雲端</p>
+                  <p className="text-sm font-bold">
+                    {cloud?.hasCloud ? `${cloud.entryCount ?? '?'} 字` : '尚未上傳'}
+                  </p>
+                  <p className="text-[9px] text-muted-foreground">{fmtDate(cloud?.updatedAt ?? null)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 同步操作按鈕 */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                onClick={onUpload}
+                disabled={busy || dictStore.entries.length === 0}
+                className="rounded-xl gap-2"
+              >
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+                上傳到雲端
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onDownloadMerge}
+                disabled={busy || !cloud?.hasCloud}
+                className="rounded-xl gap-2"
+              >
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+                下載並合併
+              </Button>
+            </div>
+
+            {cloud?.hasCloud && (
+              <button
+                onClick={onDownloadReplace}
+                disabled={busy}
+                className="w-full text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1"
+              >
+                ⚠️ 用雲端覆蓋本地（清除本地未同步的條目）
+              </button>
+            )}
+
+            {statusMsg && (
+              <div className={cn(
+                "p-3 rounded-xl text-[10px] flex items-start gap-2",
+                statusMsg.kind === 'ok'
+                  ? "bg-green-500/10 border border-green-200 text-green-700"
+                  : "bg-destructive/10 border border-destructive/20 text-destructive"
+              )}>
+                {statusMsg.kind === 'ok' ? <CheckCircle2 size={12} className="shrink-0 mt-0.5" /> : <XCircle size={12} className="shrink-0 mt-0.5" />}
+                <span>{statusMsg.text}</span>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
