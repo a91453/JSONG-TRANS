@@ -129,6 +129,11 @@ interface DictionaryState {
   togglePresetHidden: (word: string) => void;
   restoreAllPresets: () => void;
   isPresetHidden: (word: string) => boolean;
+  markSeen: (id: string) => void;
+  markSeenByWord: (word: string, reading: string) => void;
+  setWordTranslation: (id: string, translation: string) => void;
+  countMissingTranslations: () => number;
+  importEntries: (incoming: DictEntry[]) => number;
 }
 
 export const useDictionaryStore = create<DictionaryState>()(
@@ -186,6 +191,68 @@ export const useDictionaryStore = create<DictionaryState>()(
       })),
       restoreAllPresets: () => set({ hiddenPresets: [] }),
       isPresetHidden: (word) => get().hiddenPresets.includes(word),
+      markSeen: (id) => set(state => ({
+        entries: state.entries.map(e => e.id === id ? { ...e, lastSeenAt: new Date().toISOString() } : e),
+      })),
+      markSeenByWord: (word, reading) => set(state => {
+        const now = new Date().toISOString();
+        return {
+          entries: state.entries.map(e =>
+            e.word === word && e.reading === reading ? { ...e, lastSeenAt: now } : e),
+        };
+      }),
+      setWordTranslation: (id, translation) => set(state => ({
+        entries: state.entries.map(e => e.id === id ? { ...e, wordTranslation: translation } : e),
+      })),
+      countMissingTranslations: () => get().entries.filter(e => !e.wordTranslation?.trim()).length,
+      importEntries: (incoming) => {
+        let merged = 0, added = 0;
+        const sourceKey = (s: WordSource) => `${s.videoId}|${s.sentence}`;
+        set(state => {
+          const out = [...state.entries];
+          incoming.forEach(inc => {
+            if (!inc?.word || !inc?.reading) return;
+            const idx = out.findIndex(e => e.word === inc.word && e.reading === inc.reading);
+            const sources = Array.isArray(inc.sources)
+              ? inc.sources.filter(s => s?.videoId && s?.songTitle && s?.sentence && s?.translation)
+              : [];
+            if (idx === -1) {
+              out.unshift({
+                id:              crypto.randomUUID(),
+                word:            inc.word,
+                reading:         inc.reading,
+                romaji:          inc.romaji ?? convertToRomaji(inc.reading),
+                sources:         sources.map(({ id: _ignore, ...rest }) => ({ id: crypto.randomUUID(), ...rest })),
+                addedDate:       inc.addedDate ?? new Date().toISOString(),
+                mastered:        !!inc.mastered,
+                wordTranslation: inc.wordTranslation,
+                lastSeenAt:      inc.lastSeenAt,
+              });
+              added++;
+            } else {
+              const existing     = out[idx];
+              const existingKeys = new Set(existing.sources.map(sourceKey));
+              const newSources   = sources
+                .filter(s => !existingKeys.has(sourceKey(s)))
+                .map(({ id: _ignore, ...rest }) => ({ id: crypto.randomUUID(), ...rest }));
+              out[idx] = {
+                ...existing,
+                sources:         [...existing.sources, ...newSources],
+                wordTranslation: existing.wordTranslation || inc.wordTranslation,
+                mastered:        existing.mastered || !!inc.mastered,
+                lastSeenAt: (() => {
+                  const a = existing.lastSeenAt, b = inc.lastSeenAt;
+                  if (a && b) return a > b ? a : b;
+                  return a || b;
+                })(),
+              };
+              merged++;
+            }
+          });
+          return { entries: out };
+        });
+        return added + merged;
+      },
     }),
     { name: 'nihongo-dictionary-storage-v3' }
   )

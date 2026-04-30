@@ -33,6 +33,10 @@ import {
   Download,
   LogIn,
   FileUp,
+  Volume2,
+  X as XIcon,
+  Sparkles,
+  CheckCircle2,
 } from "lucide-react"
 import { Segment } from "@/types"
 import {
@@ -89,7 +93,7 @@ function LearnContent() {
   const importFileRef = useRef<HTMLInputElement>(null)
 
   const { toast } = useToast()
-  const { addEntry, addAllFromSegment, contains: dictContains } = useDictionaryStore()
+  const { addEntry, addAllFromSegment, contains: dictContains, markSeenByWord, entries: dictEntries } = useDictionaryStore()
   const { saveResult } = useHistoryStore()
   const { addFavorite, isFavorited } = useFavoriteStore()
   const {
@@ -271,18 +275,25 @@ function LearnContent() {
     }
   }
 
-  // 點擊含漢字的詞 → 朗讀 + 觸覺 + AI 深度解說（傳入整句與歌曲上下文）
+  // 點擊單字 → 朗讀 + 觸覺 + 彈出快速動作卡（AI 解說改成 popover 內按鈕，避免每點一次都花配額）
+  const [quickWord, setQuickWord] = useState<{ word: string; reading?: string; seg?: Segment } | null>(null);
+
   const handleWordClick = (word: string, reading?: string, seg?: Segment) => {
     speak(word);
     if (typeof navigator !== 'undefined') navigator.vibrate?.(10);
-    if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(word) && seg) {
-      handleExplainAI(seg.japanese, {
-        focusWord:    word,
-        focusReading: reading,
-        songTitle:    videoTitle || undefined,
-      });
-    }
-  }
+    if (reading) markSeenByWord(word, reading);
+    setQuickWord({ word, reading, seg });
+  };
+
+  const triggerAiExplainFromQuick = () => {
+    if (!quickWord?.seg) return;
+    handleExplainAI(quickWord.seg.japanese, {
+      focusWord:    quickWord.word,
+      focusReading: quickWord.reading,
+      songTitle:    videoTitle || undefined,
+    });
+    setQuickWord(null);
+  };
 
   const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -781,6 +792,94 @@ function LearnContent() {
           </div>
         </>
       )}
+
+      {/* 快速單字卡（點 FuriganaText 漢字觸發） */}
+      {quickWord && (() => {
+        const saved      = quickWord.reading ? dictContains(quickWord.word, quickWord.reading) : false;
+        const savedEntry = quickWord.reading ? dictEntries.find(e => e.word === quickWord.word && e.reading === quickWord.reading) : undefined;
+        return (
+          <>
+            <div className="fixed inset-0 z-40 bg-black/20 animate-in fade-in" onClick={() => setQuickWord(null)} />
+            <div className="fixed bottom-0 left-0 right-0 z-50 px-3 pb-4 animate-in slide-in-from-bottom-4 duration-300">
+              <div className="max-w-md mx-auto bg-card rounded-3xl shadow-2xl border-2 border-primary/10 overflow-hidden">
+                <div className="flex items-start gap-3 p-5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-3 flex-wrap">
+                      <h3 className="text-3xl font-bold text-primary break-all">{quickWord.word}</h3>
+                      {quickWord.reading && (
+                        <span className="text-sm text-indigo-600 font-medium">{quickWord.reading}</span>
+                      )}
+                    </div>
+                    {quickWord.reading && (
+                      <p className="text-[11px] text-orange-500 font-bold uppercase tracking-tighter mt-0.5">
+                        {convertToRomaji(quickWord.reading)}
+                      </p>
+                    )}
+                    {savedEntry?.wordTranslation && (
+                      <p className="text-sm font-bold text-foreground/80 mt-2">
+                        {savedEntry.wordTranslation}
+                      </p>
+                    )}
+                    {quickWord.seg?.translation && !savedEntry?.wordTranslation && (
+                      <p className="text-xs text-muted-foreground italic mt-2 line-clamp-2">
+                        歌詞含義：{quickWord.seg.translation}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <button
+                      onClick={() => speak(quickWord.word)}
+                      aria-label="再次朗讀"
+                      className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 flex items-center justify-center"
+                    >
+                      <Volume2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => setQuickWord(null)}
+                      aria-label="關閉"
+                      className="w-9 h-9 rounded-full bg-muted text-muted-foreground hover:bg-muted/80 flex items-center justify-center"
+                    >
+                      <XIcon size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 px-5 pb-5">
+                  {saved ? (
+                    <Button disabled className="h-11 rounded-xl gap-1.5 bg-green-500/10 text-green-700 hover:bg-green-500/10">
+                      <CheckCircle2 size={16} /> 已收藏
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        if (!quickWord.reading || !quickWord.seg) return;
+                        addEntry(
+                          quickWord.word, quickWord.reading,
+                          v, videoTitle,
+                          quickWord.seg.japanese, quickWord.seg.translation,
+                        );
+                        if (typeof navigator !== 'undefined') navigator.vibrate?.(10);
+                      }}
+                      disabled={!quickWord.reading || !quickWord.seg}
+                      className="h-11 rounded-xl gap-1.5"
+                    >
+                      <PlusCircle size={16} /> 收藏到字典
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={triggerAiExplainFromQuick}
+                    disabled={!quickWord.seg || isExplaining}
+                    className="h-11 rounded-xl gap-1.5"
+                  >
+                    {isExplaining ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    AI 解說
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   )
 }

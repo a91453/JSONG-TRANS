@@ -65,8 +65,8 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
   const [wrongQuestions,  setWrongQuestions]  = useState<Question[]>([]);
   const [skipMastered,    setSkipMastered]    = useState(true);
 
-  const { progress, updateHighScore }  = useProgressStore();
-  const { entries, hiddenPresets }     = useDictionaryStore();
+  const { progress, updateHighScore }                 = useProgressStore();
+  const { entries, hiddenPresets, markSeenByWord }    = useDictionaryStore();
 
   const masteredCount = useMemo(
     () => entries.filter(e => e.mastered).length,
@@ -74,9 +74,12 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
   );
 
   // 將使用者字典轉成題卡格式（句子翻譯作為「答案」測試使用者對歌詞含義的記憶）
+  // SRS 排序：最久未見過的優先（lastSeenAt 缺失視為最久未見），讓使用者先複習生疏的字
   const dictCards = useMemo<QuizCard[]>(() => entries
     .filter(e => e.sources.length > 0 && e.sources[0].translation.trim())
     .filter(e => !skipMastered || !e.mastered)
+    .slice()
+    .sort((a, b) => (a.lastSeenAt ?? '') > (b.lastSeenAt ?? '') ? 1 : -1)
     .map(e => ({
       word:        e.word,
       furigana:    e.reading,
@@ -121,11 +124,18 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
   const generateQuestions = () => {
     const sourceCards = effectiveMode === 'dictionary' ? dictCards : staticCards;
     if (sourceCards.length < MIN_FOR_QUIZ) return;
-    const numQs    = Math.min(10, sourceCards.length);
-    const selected = shuffle(sourceCards).slice(0, numQs);
+    const numQs = Math.min(10, sourceCards.length);
+    // dictCards 已依 SRS 排序，取前 N 個（最久未見）；staticCards 則隨機抽
+    const selected = effectiveMode === 'dictionary'
+      ? sourceCards.slice(0, numQs)
+      : shuffle(sourceCards).slice(0, numQs);
     setQuestions(selected.map(card => buildQuestion(card, sourceCards)));
     setCurrentIndex(0); setScore(0); setWrongQuestions([]);
     setSelectedOption(null); setIsAnswered(false); setView("playing");
+    // 標記為「已看過」，避免下一輪又抽到同一批
+    if (effectiveMode === 'dictionary') {
+      selected.forEach(c => markSeenByWord(c.word, c.furigana));
+    }
   };
 
   /** 只重練先前答錯的題目（從結果頁進入） */

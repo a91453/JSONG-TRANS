@@ -4,8 +4,10 @@
 import { useState, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useDictionaryStore } from "@/store/use-app-store";
+import { useDictionaryStore, useSettingsStore } from "@/store/use-app-store";
 import { VocabularyData } from "@/lib/constants/data";
+import { translateWordsAction } from "@/ai/flows/translate-words";
+import { useToast } from "@/hooks/use-toast";
 import {
   Book,
   Search,
@@ -24,7 +26,9 @@ import {
   Volume2,
   Download,
   Upload,
-  Check
+  Check,
+  Sparkles,
+  Loader2
 } from "lucide-react";
 import { speak } from "@/lib/speech";
 import type { DictEntry } from "@/types";
@@ -39,9 +43,13 @@ type DictFilter = "全部" | "學習中" | "已熟練";
 
 export default function DictionaryPage() {
   const {
-    entries, removeEntry, toggleMastered, addEntry,
+    entries, removeEntry, toggleMastered, markSeen, setWordTranslation, importEntries,
     hiddenPresets, togglePresetHidden, restoreAllPresets,
   } = useDictionaryStore();
+  const settings = useSettingsStore();
+  const { toast } = useToast();
+  const [isFilling, setIsFilling] = useState(false);
+  const [fillProgress, setFillProgress] = useState<{ done: number; total: number } | null>(null);
   const [filter, setFilter] = useState<DictFilter>("全部");
   const [searchText, setSearchText] = useState("");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
@@ -108,6 +116,52 @@ export default function DictionaryPage() {
     URL.revokeObjectURL(url);
   };
 
+  // ── AI 補全字義（手動觸發）─────────────────────────────────────────────
+  const missingTranslationCount = useMemo(
+    () => entries.filter(e => !e.wordTranslation?.trim()).length,
+    [entries],
+  );
+
+  const fillMissingTranslations = async () => {
+    const provider = settings.aiProvider;
+    const apiKey   = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey;
+    const model    = provider === 'google' ? settings.geminiModel  : settings.groqModel;
+    if (!apiKey) {
+      toast({
+        variant: 'destructive',
+        title: '缺少 API Key',
+        description: `請至設定頁面輸入 ${provider === 'google' ? 'Gemini' : 'Groq'} API Key。`,
+      });
+      return;
+    }
+    const targets = entries.filter(e => !e.wordTranslation?.trim());
+    if (targets.length === 0) return;
+    setIsFilling(true);
+    setFillProgress({ done: 0, total: targets.length });
+    try {
+      const CHUNK = 30;
+      for (let i = 0; i < targets.length; i += CHUNK) {
+        const slice = targets.slice(i, i + CHUNK);
+        const results = await translateWordsAction(
+          slice.map(e => ({ word: e.word, reading: e.reading })),
+          { provider, apiKey, model },
+        );
+        const byKey = new Map(results.map(r => [`${r.word}|${r.reading}`, r.translation]));
+        slice.forEach(e => {
+          const t = byKey.get(`${e.word}|${e.reading}`);
+          if (t?.trim()) setWordTranslation(e.id, t.trim());
+        });
+        setFillProgress({ done: Math.min(i + CHUNK, targets.length), total: targets.length });
+      }
+      toast({ title: `已補上 ${targets.length} 個單字翻譯` });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: '補全失敗', description: err?.message || '請稍後再試' });
+    } finally {
+      setIsFilling(false);
+      setFillProgress(null);
+    }
+  };
+
   const importDictionary = async (file: File) => {
     setImportError(null);
     try {
@@ -115,16 +169,16 @@ export default function DictionaryPage() {
       const data = JSON.parse(text);
       const incoming: DictEntry[] = Array.isArray(data?.entries) ? data.entries : [];
       if (incoming.length === 0) throw new Error('檔案中沒有可匯入的字典條目');
-      incoming.forEach(e => {
-        if (!e?.word || !e?.reading || !Array.isArray(e?.sources)) return;
-        e.sources.forEach(s => {
-          if (s?.videoId && s?.songTitle && s?.sentence && s?.translation) {
-            // addEntry 會根據 word+reading 去重，重複的 source 也會被略過
-            addEntry(e.word, e.reading, s.videoId, s.songTitle, s.sentence, s.translation);
-          }
-        });
-      });
-      alert(`匯入完成！處理 ${incoming.length} 筆，已合併到字典（重複條目會自動去重）。`);
+      const processed = importEntries(incoming);
+      // 匯入時也順便還原使用者隱藏的預設詞清單
+      if (Array.isArray(data?.hiddenPresets)) {
+        data.hiddenPresets
+          .filter((w: unknown): w is string => typeof w === 'string')
+          .forEach((w: string) => {
+            if (!hiddenPresets.includes(w)) togglePresetHidden(w);
+          });
+      }
+      alert(`匯入完成！處理 ${processed} 筆條目（含 wordTranslation / mastered 等元資料；重複條目自動合併）。`);
     } catch (err: any) {
       setImportError(err?.message || '檔案格式無效');
     }
@@ -155,6 +209,21 @@ export default function DictionaryPage() {
         <header className="flex items-center justify-between gap-2">
           <h1 className="text-3xl font-headline font-bold text-primary">我的字典</h1>
           <div className="flex items-center gap-1.5">
+            {missingTranslationCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fillMissingTranslations}
+                disabled={isFilling}
+                className="rounded-full h-9 gap-1.5 border-primary/40 text-primary"
+                aria-label="AI 補全字義"
+              >
+                {isFilling
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Sparkles size={14} />}
+                {fillProgress ? `${fillProgress.done}/${fillProgress.total}` : `補全 (${missingTranslationCount})`}
+              </Button>
+            )}
             {entries.length > 0 && (
               <Button
                 variant="outline"
@@ -229,7 +298,11 @@ export default function DictionaryPage() {
             return (
               <div
                 key={entry.id}
-                onClick={() => selectionMode ? toggleSelected(entry.id) : setSelectedEntryId(entry.id)}
+                onClick={() => {
+                  if (selectionMode) { toggleSelected(entry.id); return; }
+                  markSeen(entry.id);
+                  setSelectedEntryId(entry.id);
+                }}
                 className={cn(
                   "flex items-center gap-4 p-4 rounded-2xl bg-card border transition-all cursor-pointer group shadow-sm",
                   selectionMode && isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary",
@@ -244,7 +317,13 @@ export default function DictionaryPage() {
                   </div>
                 )}
                 <div className="flex flex-col items-center justify-center min-w-[60px] text-center"><span className="text-[10px] text-indigo-600 font-bold leading-none mb-1">{entry.reading}</span><span className="text-xl font-bold text-foreground leading-none">{entry.word}</span></div>
-                <div className="flex-1 min-w-0"><p className="text-[10px] text-orange-500 font-bold mb-1 uppercase tracking-tighter">{entry.romaji}</p><div className="flex items-center gap-1.5 text-muted-foreground"><Music size={10} className="shrink-0" /><span className="text-[10px] font-medium truncate">{entry.sources[0]?.songTitle || "影片課程"}{entry.sources.length > 1 && ` 等 ${entry.sources.length} 處`}</span></div></div>
+                <div className="flex-1 min-w-0">
+                  {entry.wordTranslation && (
+                    <p className="text-sm font-bold text-foreground/90 mb-0.5 truncate">{entry.wordTranslation}</p>
+                  )}
+                  <p className="text-[10px] text-orange-500 font-bold mb-1 uppercase tracking-tighter">{entry.romaji}</p>
+                  <div className="flex items-center gap-1.5 text-muted-foreground"><Music size={10} className="shrink-0" /><span className="text-[10px] font-medium truncate">{entry.sources[0]?.songTitle || "影片課程"}{entry.sources.length > 1 && ` 等 ${entry.sources.length} 處`}</span></div>
+                </div>
                 {!selectionMode && (
                   <div className="flex items-center gap-2"><button onClick={(e) => { e.stopPropagation(); toggleMastered(entry.id); }} className={cn("p-2 rounded-full transition-colors", entry.mastered ? "text-green-500 bg-green-50" : "text-muted-foreground bg-muted/50")}>{entry.mastered ? <CheckCircle2 size={20} /> : <Circle size={20} />}</button><ChevronRight size={16} className="text-muted-foreground" /></div>
                 )}
@@ -254,7 +333,7 @@ export default function DictionaryPage() {
         </div>
       ) : (<div className="flex flex-col items-center justify-center py-20 text-center space-y-4"><Book size={48} className="text-muted-foreground opacity-50" /><div className="space-y-1"><p className="font-bold text-muted-foreground">還沒有收藏的單字</p><p className="text-xs text-muted-foreground/60 px-8">在影片學習中點擊「＋」即可將單字加入字典。</p></div></div>)}
       <Dialog open={!!selectedEntryId} onOpenChange={(open) => !open && setSelectedEntryId(null)}>
-        <DialogContent className="rounded-3xl max-w-sm">{selectedEntry && (<div className="space-y-6 py-4"><div className="text-center space-y-2 p-6 bg-indigo-50 rounded-2xl relative"><button onClick={() => speak(selectedEntry.reading || selectedEntry.word)} aria-label="朗讀" className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/70 hover:bg-white text-indigo-600 flex items-center justify-center shadow-sm active:scale-95 transition-all"><Volume2 size={16} /></button><h2 className="text-5xl font-bold text-primary">{selectedEntry.word}</h2><div className="flex items-center justify-center gap-4 text-lg"><span className="text-indigo-600 font-medium">{selectedEntry.reading}</span><span className="text-orange-500 font-medium">{selectedEntry.romaji}</span></div></div><div className="space-y-4"><h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2"><PlayCircle size={14} /> 出處歌曲 ({selectedEntry.sources.length} 首)</h3><div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">{Object.values(selectedEntry.sources.reduce((acc, src) => { if (!acc[src.videoId]) acc[src.videoId] = { title: src.songTitle, pairs: [] }; acc[src.videoId].pairs.push({ jp: src.sentence, zh: src.translation }); return acc; }, {} as Record<string, { title: string, pairs: { jp: string, zh: string }[] }>)).map((group, idx) => (<div key={idx} className="p-3 bg-muted/30 rounded-xl space-y-2 border border-border/50"><p className="text-[10px] font-bold text-indigo-600 truncate">{group.title}</p>{group.pairs.map((p, pIdx) => (<div key={pIdx} className="space-y-0.5"><p className="text-xs font-medium">{p.jp}</p><p className="text-[10px] text-muted-foreground italic">{p.zh}</p></div>))}</div>))}</div></div><Button variant="destructive" size="sm" className="w-full rounded-xl" onClick={() => { removeEntry(selectedEntry.id); setSelectedEntryId(null); }}>從字典中刪除</Button></div>)}</DialogContent>
+        <DialogContent className="rounded-3xl max-w-sm">{selectedEntry && (<div className="space-y-6 py-4"><div className="text-center space-y-2 p-6 bg-indigo-50 rounded-2xl relative"><button onClick={() => speak(selectedEntry.reading || selectedEntry.word)} aria-label="朗讀" className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/70 hover:bg-white text-indigo-600 flex items-center justify-center shadow-sm active:scale-95 transition-all"><Volume2 size={16} /></button><h2 className="text-5xl font-bold text-primary">{selectedEntry.word}</h2><div className="flex items-center justify-center gap-4 text-lg"><span className="text-indigo-600 font-medium">{selectedEntry.reading}</span><span className="text-orange-500 font-medium">{selectedEntry.romaji}</span></div>{selectedEntry.wordTranslation && (<p className="text-base font-bold text-foreground/90 pt-2">{selectedEntry.wordTranslation}</p>)}</div><div className="space-y-4"><h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2"><PlayCircle size={14} /> 出處歌曲 ({selectedEntry.sources.length} 首)</h3><div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">{Object.values(selectedEntry.sources.reduce((acc, src) => { if (!acc[src.videoId]) acc[src.videoId] = { title: src.songTitle, pairs: [] }; acc[src.videoId].pairs.push({ jp: src.sentence, zh: src.translation }); return acc; }, {} as Record<string, { title: string, pairs: { jp: string, zh: string }[] }>)).map((group, idx) => (<div key={idx} className="p-3 bg-muted/30 rounded-xl space-y-2 border border-border/50"><p className="text-[10px] font-bold text-indigo-600 truncate">{group.title}</p>{group.pairs.map((p, pIdx) => (<div key={pIdx} className="space-y-0.5"><p className="text-xs font-medium">{p.jp}</p><p className="text-[10px] text-muted-foreground italic">{p.zh}</p></div>))}</div>))}</div></div><Button variant="destructive" size="sm" className="w-full rounded-xl" onClick={() => { removeEntry(selectedEntry.id); setSelectedEntryId(null); }}>從字典中刪除</Button></div>)}</DialogContent>
       </Dialog>
       <ReviewDialog open={showReview} onOpenChange={setShowReview} list={entries.filter(e => !e.mastered)} />
       <PresetManagerDialog
