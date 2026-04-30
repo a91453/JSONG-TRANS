@@ -50,7 +50,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // ── 4. 寫入 Firestore ────────────────────────────────────────────────
+    // ── 4. 檢查是否已有未過期快取（避免覆寫高品質來源）─────────────────────
+    const ref  = db.collection('subtitles').doc(videoId);
+    const snap = await ref.get();
+    if (snap.exists) {
+      const data = snap.data() as { expiresAt?: number; source?: string } | undefined;
+      const stillValid = !!data && (!data.expiresAt || Date.now() <= data.expiresAt);
+      if (stillValid) {
+        return Response.json({
+          ok: false,
+          videoId,
+          alreadyCached: true,
+          existingSource: data?.source ?? 'unknown',
+          error: `此影片雲端已有快取（來源：${data?.source ?? 'unknown'}），無需重複上傳`,
+        }, { status: 409 });
+      }
+    }
+
+    // ── 5. 寫入 Firestore ────────────────────────────────────────────────
     const now = Date.now();
     const doc = {
       videoId,
@@ -60,7 +77,7 @@ export async function POST(req: Request) {
       expiresAt: now + CACHE_TTL_MS,
     };
 
-    await db.collection('subtitles').doc(videoId).set(doc);
+    await ref.set(doc);
 
     return Response.json({
       ok: true,

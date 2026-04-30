@@ -388,25 +388,59 @@ ${segmentLines}
 
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天，與 youtube-actions.ts 一致
 
+/**
+ * 將標注完成的段落寫入 Firestore 快取，供其他使用者重複利用。
+ *
+ * 安全規範：
+ *   1. videoId 必須為 11 位 YouTube ID（custom_/file- 一律拒絕）
+ *   2. 快取已存在且未過期 → 拒絕覆寫，避免低品質手動字幕蓋掉
+ *      youtube-official / external / whisper-groq 等更可靠的來源
+ *   3. 寫入時轉成 RawSegment 形狀（text 而非 japanese），與 readCache
+ *      及 analyze-stream pipeline 的期望一致
+ */
 export async function saveSubtitleCacheAction(result: {
   videoId:  string;
-  duration: number;
   segments: Array<{
-    id: string; start: number; end: number;
+    id?: string; start: number; end: number;
     japanese: string; translation: string;
     furigana: Array<{ word: string; reading: string }>;
   }>;
-  source: string;
-}): Promise<void> {
-  if (!db) return; // Firestore 未配置，靜默跳過
-  if (result.videoId.length !== 11) return; // 只快取真實 YouTube ID
-  const now = Date.now();
-  await db.collection('subtitles').doc(result.videoId).set({
-    videoId:   result.videoId,
-    segments:  result.segments,
-    source:    'manual' as const,
-    cachedAt:  now,
-    expiresAt: now + CACHE_TTL_MS,
-  });
-  console.log(`[SubtitleCache] 手動匯入已快取: ${result.videoId} (${result.segments.length} 段)`);
+}): Promise<{ ok: boolean; reason?: 'no-firestore' | 'not-youtube-id' | 'already-cached' | 'error' }> {
+  if (!db) return { ok: false, reason: 'no-firestore' };
+  if (result.videoId.length !== 11) return { ok: false, reason: 'not-youtube-id' };
+
+  try {
+    const ref  = db.collection('subtitles').doc(result.videoId);
+    const snap = await ref.get();
+    if (snap.exists) {
+      const data = snap.data() as { expiresAt?: number; source?: string } | undefined;
+      const stillValid = !!data && (!data.expiresAt || Date.now() <= data.expiresAt);
+      if (stillValid) {
+        console.log(`[SubtitleCache] 已有快取，跳過手動覆寫: ${result.videoId} (${data?.source ?? 'unknown'})`);
+        return { ok: false, reason: 'already-cached' };
+      }
+    }
+
+    // 轉成 RawSegment 形狀供 analyze-stream pipeline 重複使用
+    const rawSegments = result.segments.map(s => ({
+      start:    s.start,
+      end:      s.end,
+      text:     s.japanese,
+      furigana: s.furigana,
+    }));
+
+    const now = Date.now();
+    await ref.set({
+      videoId:   result.videoId,
+      segments:  rawSegments,
+      source:    'manual' as const,
+      cachedAt:  now,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+    console.log(`[SubtitleCache] 手動匯入已快取: ${result.videoId} (${rawSegments.length} 段)`);
+    return { ok: true };
+  } catch (e) {
+    console.warn('[SubtitleCache] 寫入失敗（不影響主流程）:', e);
+    return { ok: false, reason: 'error' };
+  }
 }

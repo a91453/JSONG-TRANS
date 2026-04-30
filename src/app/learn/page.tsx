@@ -331,9 +331,13 @@ function LearnContent() {
       const videoId     = v.length === 11 ? v : `file-${Date.now()}`
       const finalResult = { ...result, videoId }
       saveResult(finalResult, videoTitle || "匯入字幕", artistName || "自定義")
-      // 若是真實 YouTube ID，同時寫入 Firestore 供其他使用者快取命中
+      // 若是真實 YouTube ID，同時嘗試寫入 Firestore 供其他使用者快取命中
+      // （不覆寫既有快取；Firestore 未配置時靜默跳過）
       if (videoId.length === 11) {
-        saveSubtitleCacheAction(finalResult).catch(() => {/* Firestore 未配置時靜默 */})
+        saveSubtitleCacheAction(finalResult).then(r => {
+          if (r?.ok) console.log('[Cloud] 已分享至雲端快取');
+          else if (r?.reason === 'already-cached') console.log('[Cloud] 雲端已有快取，未覆寫');
+        }).catch(() => {/* silent */})
       }
       toast({ title: "匯入完成", description: `${result.segments.length} 段字幕已就緒。` })
       if (videoId !== v) {
