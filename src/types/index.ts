@@ -76,7 +76,10 @@ export interface StreakData {
 export interface ProgressData {
   learnedKanaCount: number;
   learnedVocabularyCount: number;
+  /** 綜合詞庫測驗最高分（題目來自 VocabularyData） */
   quizHighScore: number;
+  /** 我的字典測驗最高分（題目來自使用者收藏） */
+  quizDictHighScore: number;
   dailyKanaCount: number;
   dailyVocabCount: number;
   lastResetDate: string;

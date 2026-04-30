@@ -1,7 +1,7 @@
 
 "use client"
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDictionaryStore } from "@/store/use-app-store";
@@ -20,8 +20,14 @@ import {
   Library,
   Trash2,
   Eye,
-  EyeOff
+  EyeOff,
+  Volume2,
+  Download,
+  Upload,
+  Check
 } from "lucide-react";
+import { speak } from "@/lib/speech";
+import type { DictEntry } from "@/types";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -33,7 +39,7 @@ type DictFilter = "全部" | "學習中" | "已熟練";
 
 export default function DictionaryPage() {
   const {
-    entries, removeEntry, toggleMastered,
+    entries, removeEntry, toggleMastered, addEntry,
     hiddenPresets, togglePresetHidden, restoreAllPresets,
   } = useDictionaryStore();
   const [filter, setFilter] = useState<DictFilter>("全部");
@@ -41,6 +47,10 @@ export default function DictionaryPage() {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [showReview, setShowReview] = useState(false);
   const [showPresetManager, setShowPresetManager] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const unmasteredCount = entries.filter(e => !e.mastered).length;
   const masteredCount = entries.filter(e => e.mastered).length;
@@ -58,21 +68,151 @@ export default function DictionaryPage() {
 
   const selectedEntry = entries.find(e => e.id === selectedEntryId);
 
+  // ── 批次選取 ──────────────────────────────────────────────────────────────
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const selectAllVisible = () => {
+    setSelectedIds(new Set(filteredEntries.map(e => e.id)));
+  };
+  const clearSelection = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+  const deleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`確定刪除 ${selectedIds.size} 個單字嗎？此動作無法復原。`)) return;
+    selectedIds.forEach(id => removeEntry(id));
+    clearSelection();
+  };
+
+  // ── 匯出 / 匯入 ─────────────────────────────────────────────────────────
+  const exportDictionary = () => {
+    const payload = {
+      version:   1,
+      exportedAt: new Date().toISOString(),
+      count:     entries.length,
+      entries,
+      hiddenPresets,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `nihongo-dictionary-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importDictionary = async (file: File) => {
+    setImportError(null);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const incoming: DictEntry[] = Array.isArray(data?.entries) ? data.entries : [];
+      if (incoming.length === 0) throw new Error('檔案中沒有可匯入的字典條目');
+      incoming.forEach(e => {
+        if (!e?.word || !e?.reading || !Array.isArray(e?.sources)) return;
+        e.sources.forEach(s => {
+          if (s?.videoId && s?.songTitle && s?.sentence && s?.translation) {
+            // addEntry 會根據 word+reading 去重，重複的 source 也會被略過
+            addEntry(e.word, e.reading, s.videoId, s.songTitle, s.sentence, s.translation);
+          }
+        });
+      });
+      alert(`匯入完成！處理 ${incoming.length} 筆，已合併到字典（重複條目會自動去重）。`);
+    } catch (err: any) {
+      setImportError(err?.message || '檔案格式無效');
+    }
+  };
+
   return (
     <div className="space-y-6 px-6 py-6">
-      <header className="flex items-center justify-between gap-2">
-        <h1 className="text-3xl font-headline font-bold text-primary">我的字典</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowPresetManager(true)} className="rounded-full gap-1.5 h-9">
-            <Library size={14} /> 預設詞庫
+      {selectionMode ? (
+        <header className="flex items-center justify-between gap-2 sticky top-0 z-10 bg-background py-2">
+          <Button variant="ghost" size="sm" onClick={clearSelection} className="rounded-full">
+            <X size={16} className="mr-1" /> 取消
           </Button>
-          {unmasteredCount > 0 && (
-            <Button onClick={() => setShowReview(true)} className="rounded-full bg-indigo-600 hover:bg-indigo-700 shadow-md gap-2 h-9">
-              <RotateCcw size={16} /> 複習
+          <span className="text-sm font-bold text-primary">已選 {selectedIds.size} 個</span>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={selectAllVisible} className="rounded-full text-xs h-8">全選</Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={selectedIds.size === 0}
+              onClick={deleteSelected}
+              className="rounded-full text-xs h-8 gap-1"
+            >
+              <Trash2 size={12} /> 刪除
             </Button>
-          )}
+          </div>
+        </header>
+      ) : (
+        <header className="flex items-center justify-between gap-2">
+          <h1 className="text-3xl font-headline font-bold text-primary">我的字典</h1>
+          <div className="flex items-center gap-1.5">
+            {entries.length > 0 && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setSelectionMode(true)}
+                className="rounded-full h-9 w-9"
+                aria-label="批次選取"
+              >
+                <Check size={14} />
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={exportDictionary}
+              disabled={entries.length === 0}
+              className="rounded-full h-9 w-9"
+              aria-label="匯出字典"
+            >
+              <Download size={14} />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-full h-9 w-9"
+              aria-label="匯入字典"
+            >
+              <Upload size={14} />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={async e => {
+                const f = e.target.files?.[0];
+                if (f) await importDictionary(f);
+                e.target.value = '';
+              }}
+            />
+            <Button variant="outline" size="sm" onClick={() => setShowPresetManager(true)} className="rounded-full gap-1.5 h-9">
+              <Library size={14} /> 預設
+            </Button>
+            {unmasteredCount > 0 && (
+              <Button onClick={() => setShowReview(true)} className="rounded-full bg-indigo-600 hover:bg-indigo-700 shadow-md gap-2 h-9">
+                <RotateCcw size={16} /> 複習
+              </Button>
+            )}
+          </div>
+        </header>
+      )}
+      {importError && (
+        <div className="px-4 py-2 rounded-xl bg-destructive/10 text-destructive text-xs font-medium flex items-center justify-between">
+          <span>匯入失敗：{importError}</span>
+          <button onClick={() => setImportError(null)}><X size={14} /></button>
         </div>
-      </header>
+      )}
       <div className="grid grid-cols-3 gap-3">
         <StatBadge label="收藏" count={entries.length} color="text-indigo-600" bgColor="bg-indigo-50" />
         <StatBadge label="學習中" count={unmasteredCount} color="text-orange-600" bgColor="bg-orange-50" />
@@ -84,17 +224,37 @@ export default function DictionaryPage() {
       </div>
       {filteredEntries.length > 0 ? (
         <div className="space-y-3">
-          {filteredEntries.map((entry) => (
-            <div key={entry.id} onClick={() => setSelectedEntryId(entry.id)} className="flex items-center gap-4 p-4 rounded-2xl bg-card border hover:border-primary transition-all cursor-pointer group shadow-sm">
-              <div className="flex flex-col items-center justify-center min-w-[60px] text-center"><span className="text-[10px] text-indigo-600 font-bold leading-none mb-1">{entry.reading}</span><span className="text-xl font-bold text-foreground leading-none">{entry.word}</span></div>
-              <div className="flex-1 min-w-0"><p className="text-[10px] text-orange-500 font-bold mb-1 uppercase tracking-tighter">{entry.romaji}</p><div className="flex items-center gap-1.5 text-muted-foreground"><Music size={10} className="shrink-0" /><span className="text-[10px] font-medium truncate">{entry.sources[0]?.songTitle || "影片課程"}{entry.sources.length > 1 && ` 等 ${entry.sources.length} 處`}</span></div></div>
-              <div className="flex items-center gap-2"><button onClick={(e) => { e.stopPropagation(); toggleMastered(entry.id); }} className={cn("p-2 rounded-full transition-colors", entry.mastered ? "text-green-500 bg-green-50" : "text-muted-foreground bg-muted/50")}>{entry.mastered ? <CheckCircle2 size={20} /> : <Circle size={20} />}</button><ChevronRight size={16} className="text-muted-foreground" /></div>
-            </div>
-          ))}
+          {filteredEntries.map((entry) => {
+            const isSelected = selectedIds.has(entry.id);
+            return (
+              <div
+                key={entry.id}
+                onClick={() => selectionMode ? toggleSelected(entry.id) : setSelectedEntryId(entry.id)}
+                className={cn(
+                  "flex items-center gap-4 p-4 rounded-2xl bg-card border transition-all cursor-pointer group shadow-sm",
+                  selectionMode && isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary",
+                )}
+              >
+                {selectionMode && (
+                  <div className={cn(
+                    "w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors",
+                    isSelected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30",
+                  )}>
+                    {isSelected && <Check size={14} />}
+                  </div>
+                )}
+                <div className="flex flex-col items-center justify-center min-w-[60px] text-center"><span className="text-[10px] text-indigo-600 font-bold leading-none mb-1">{entry.reading}</span><span className="text-xl font-bold text-foreground leading-none">{entry.word}</span></div>
+                <div className="flex-1 min-w-0"><p className="text-[10px] text-orange-500 font-bold mb-1 uppercase tracking-tighter">{entry.romaji}</p><div className="flex items-center gap-1.5 text-muted-foreground"><Music size={10} className="shrink-0" /><span className="text-[10px] font-medium truncate">{entry.sources[0]?.songTitle || "影片課程"}{entry.sources.length > 1 && ` 等 ${entry.sources.length} 處`}</span></div></div>
+                {!selectionMode && (
+                  <div className="flex items-center gap-2"><button onClick={(e) => { e.stopPropagation(); toggleMastered(entry.id); }} className={cn("p-2 rounded-full transition-colors", entry.mastered ? "text-green-500 bg-green-50" : "text-muted-foreground bg-muted/50")}>{entry.mastered ? <CheckCircle2 size={20} /> : <Circle size={20} />}</button><ChevronRight size={16} className="text-muted-foreground" /></div>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : (<div className="flex flex-col items-center justify-center py-20 text-center space-y-4"><Book size={48} className="text-muted-foreground opacity-50" /><div className="space-y-1"><p className="font-bold text-muted-foreground">還沒有收藏的單字</p><p className="text-xs text-muted-foreground/60 px-8">在影片學習中點擊「＋」即可將單字加入字典。</p></div></div>)}
       <Dialog open={!!selectedEntryId} onOpenChange={(open) => !open && setSelectedEntryId(null)}>
-        <DialogContent className="rounded-3xl max-w-sm">{selectedEntry && (<div className="space-y-6 py-4"><div className="text-center space-y-2 p-6 bg-indigo-50 rounded-2xl"><h2 className="text-5xl font-bold text-primary">{selectedEntry.word}</h2><div className="flex items-center justify-center gap-4 text-lg"><span className="text-indigo-600 font-medium">{selectedEntry.reading}</span><span className="text-orange-500 font-medium">{selectedEntry.romaji}</span></div></div><div className="space-y-4"><h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2"><PlayCircle size={14} /> 出處歌曲 ({selectedEntry.sources.length} 首)</h3><div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">{Object.values(selectedEntry.sources.reduce((acc, src) => { if (!acc[src.videoId]) acc[src.videoId] = { title: src.songTitle, pairs: [] }; acc[src.videoId].pairs.push({ jp: src.sentence, zh: src.translation }); return acc; }, {} as Record<string, { title: string, pairs: { jp: string, zh: string }[] }>)).map((group, idx) => (<div key={idx} className="p-3 bg-muted/30 rounded-xl space-y-2 border border-border/50"><p className="text-[10px] font-bold text-indigo-600 truncate">{group.title}</p>{group.pairs.map((p, pIdx) => (<div key={pIdx} className="space-y-0.5"><p className="text-xs font-medium">{p.jp}</p><p className="text-[10px] text-muted-foreground italic">{p.zh}</p></div>))}</div>))}</div></div><Button variant="destructive" size="sm" className="w-full rounded-xl" onClick={() => { removeEntry(selectedEntry.id); setSelectedEntryId(null); }}>從字典中刪除</Button></div>)}</DialogContent>
+        <DialogContent className="rounded-3xl max-w-sm">{selectedEntry && (<div className="space-y-6 py-4"><div className="text-center space-y-2 p-6 bg-indigo-50 rounded-2xl relative"><button onClick={() => speak(selectedEntry.reading || selectedEntry.word)} aria-label="朗讀" className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/70 hover:bg-white text-indigo-600 flex items-center justify-center shadow-sm active:scale-95 transition-all"><Volume2 size={16} /></button><h2 className="text-5xl font-bold text-primary">{selectedEntry.word}</h2><div className="flex items-center justify-center gap-4 text-lg"><span className="text-indigo-600 font-medium">{selectedEntry.reading}</span><span className="text-orange-500 font-medium">{selectedEntry.romaji}</span></div></div><div className="space-y-4"><h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2"><PlayCircle size={14} /> 出處歌曲 ({selectedEntry.sources.length} 首)</h3><div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">{Object.values(selectedEntry.sources.reduce((acc, src) => { if (!acc[src.videoId]) acc[src.videoId] = { title: src.songTitle, pairs: [] }; acc[src.videoId].pairs.push({ jp: src.sentence, zh: src.translation }); return acc; }, {} as Record<string, { title: string, pairs: { jp: string, zh: string }[] }>)).map((group, idx) => (<div key={idx} className="p-3 bg-muted/30 rounded-xl space-y-2 border border-border/50"><p className="text-[10px] font-bold text-indigo-600 truncate">{group.title}</p>{group.pairs.map((p, pIdx) => (<div key={pIdx} className="space-y-0.5"><p className="text-xs font-medium">{p.jp}</p><p className="text-[10px] text-muted-foreground italic">{p.zh}</p></div>))}</div>))}</div></div><Button variant="destructive" size="sm" className="w-full rounded-xl" onClick={() => { removeEntry(selectedEntry.id); setSelectedEntryId(null); }}>從字典中刪除</Button></div>)}</DialogContent>
       </Dialog>
       <ReviewDialog open={showReview} onOpenChange={setShowReview} list={entries.filter(e => !e.mastered)} />
       <PresetManagerDialog

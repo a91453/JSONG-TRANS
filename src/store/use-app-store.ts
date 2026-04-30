@@ -317,7 +317,7 @@ interface ProgressState {
   progress: ProgressData;
   addKana: () => void;
   addVocab: () => void;
-  updateHighScore: (score: number) => void;
+  updateHighScore: (score: number, mode?: 'comprehensive' | 'dictionary') => void;
   checkDailyReset: () => void;
 }
 
@@ -328,6 +328,7 @@ export const useProgressStore = create<ProgressState>()(
         learnedKanaCount: 0,
         learnedVocabularyCount: 0,
         quizHighScore: 0,
+        quizDictHighScore: 0,
         dailyKanaCount: 0,
         dailyVocabCount: 0,
         lastResetDate: ''
@@ -359,10 +360,19 @@ export const useProgressStore = create<ProgressState>()(
           lastResetDate: today
         } };
       }),
-      updateHighScore: (score) => set(state => ({
-        progress: { ...state.progress, quizHighScore: Math.max(state.progress.quizHighScore, score) }
-      }))
+      updateHighScore: (score, mode = 'comprehensive') => set(state => {
+        const key = mode === 'dictionary' ? 'quizDictHighScore' : 'quizHighScore';
+        return { progress: { ...state.progress, [key]: Math.max(state.progress[key] ?? 0, score) } };
+      })
     }),
-    { name: 'nihongo-progress-storage-v3' }
+    {
+      name: 'nihongo-progress-storage-v3',
+      // 舊版本沒有 quizDictHighScore；補預設 0 避免 undefined 比大小炸開
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as ProgressState),
+        progress: { ...current.progress, ...((persisted as ProgressState)?.progress ?? {}) },
+      }),
+    }
   )
 );

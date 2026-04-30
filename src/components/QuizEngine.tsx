@@ -16,7 +16,8 @@ import {
   RotateCcw,
   Book,
   Library,
-  Music2
+  Music2,
+  Repeat
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,19 +56,27 @@ function shuffle<T>(arr: T[]): T[] {
 const MIN_FOR_QUIZ = 4;
 
 export function QuizEngine({ onBack }: QuizEngineProps) {
-  const [view,           setView]           = useState<"home" | "playing" | "result">("home");
-  const [questions,      setQuestions]      = useState<Question[]>([]);
-  const [currentIndex,   setCurrentIndex]   = useState(0);
-  const [score,          setScore]          = useState(0);
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [isAnswered,     setIsAnswered]     = useState(false);
+  const [view,            setView]            = useState<"home" | "playing" | "result">("home");
+  const [questions,       setQuestions]       = useState<Question[]>([]);
+  const [currentIndex,    setCurrentIndex]    = useState(0);
+  const [score,           setScore]           = useState(0);
+  const [selectedOption,  setSelectedOption]  = useState<number | null>(null);
+  const [isAnswered,      setIsAnswered]      = useState(false);
+  const [wrongQuestions,  setWrongQuestions]  = useState<Question[]>([]);
+  const [skipMastered,    setSkipMastered]    = useState(true);
 
   const { progress, updateHighScore }  = useProgressStore();
   const { entries, hiddenPresets }     = useDictionaryStore();
 
+  const masteredCount = useMemo(
+    () => entries.filter(e => e.mastered).length,
+    [entries],
+  );
+
   // 將使用者字典轉成題卡格式（句子翻譯作為「答案」測試使用者對歌詞含義的記憶）
   const dictCards = useMemo<QuizCard[]>(() => entries
     .filter(e => e.sources.length > 0 && e.sources[0].translation.trim())
+    .filter(e => !skipMastered || !e.mastered)
     .map(e => ({
       word:        e.word,
       furigana:    e.reading,
@@ -75,7 +84,7 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
       category:    e.sources[0].songTitle,
       source:      { songTitle: e.sources[0].songTitle, sentence: e.sources[0].sentence },
     })),
-  [entries]);
+  [entries, skipMastered]);
 
   const staticCards = useMemo<QuizCard[]>(() => VocabularyData.words
     .filter(w => !hiddenPresets.includes(w.word))
@@ -90,41 +99,54 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
   const dictReady = dictCards.length >= MIN_FOR_QUIZ;
   const [mode, setMode] = useState<QuizMode>(dictReady ? 'dictionary' : 'comprehensive');
 
-  const generateQuestions = () => {
-    const sourceCards = mode === 'dictionary' ? dictCards : staticCards;
-    if (sourceCards.length < MIN_FOR_QUIZ) return;
+  // 模式切換時，dictReady 可能因 skipMastered 改變而變動，重新評估初始模式
+  const effectiveMode: QuizMode = mode === 'dictionary' && !dictReady ? 'comprehensive' : mode;
 
-    const shuffled  = shuffle(sourceCards);
-    const numQs     = Math.min(10, shuffled.length);
-    const selected  = shuffled.slice(0, numQs);
-    const generated = selected.map((card) => {
-      // 干擾選項：從同來源池抽 3 個翻譯不重複的卡
-      const distractors = shuffle(
-        sourceCards.filter(c => c.translation !== card.translation),
-      ).slice(0, 3);
-      const correctId = crypto.randomUUID();
-      const opts = shuffle([
-        ...distractors.map(d => ({ text: d.translation, id: crypto.randomUUID() })),
-        { text: card.translation, id: correctId },
-      ]);
-      const correctIdx = opts.findIndex(o => o.id === correctId);
-      return {
-        card,
-        options:      opts.map((o, index) => ({ text: o.text, index })),
-        correctIndex: correctIdx,
-      };
-    });
-    setQuestions(generated); setCurrentIndex(0); setScore(0);
+  const buildQuestion = (card: QuizCard, pool: QuizCard[]): Question => {
+    const distractors = shuffle(
+      pool.filter(c => c.translation !== card.translation),
+    ).slice(0, 3);
+    const correctId = crypto.randomUUID();
+    const opts = shuffle([
+      ...distractors.map(d => ({ text: d.translation, id: crypto.randomUUID() })),
+      { text: card.translation, id: correctId },
+    ]);
+    return {
+      card,
+      options:      opts.map((o, index) => ({ text: o.text, index })),
+      correctIndex: opts.findIndex(o => o.id === correctId),
+    };
+  };
+
+  const generateQuestions = () => {
+    const sourceCards = effectiveMode === 'dictionary' ? dictCards : staticCards;
+    if (sourceCards.length < MIN_FOR_QUIZ) return;
+    const numQs    = Math.min(10, sourceCards.length);
+    const selected = shuffle(sourceCards).slice(0, numQs);
+    setQuestions(selected.map(card => buildQuestion(card, sourceCards)));
+    setCurrentIndex(0); setScore(0); setWrongQuestions([]);
+    setSelectedOption(null); setIsAnswered(false); setView("playing");
+  };
+
+  /** 只重練先前答錯的題目（從結果頁進入） */
+  const retryWrongOnly = () => {
+    if (wrongQuestions.length === 0) return;
+    const sourceCards = effectiveMode === 'dictionary' ? dictCards : staticCards;
+    // 重新 shuffle 選項位置，避免使用者靠記答案位置答對
+    setQuestions(wrongQuestions.map(q => buildQuestion(q.card, sourceCards)));
+    setCurrentIndex(0); setScore(0); setWrongQuestions([]);
     setSelectedOption(null); setIsAnswered(false); setView("playing");
   };
 
   const handleAnswer = (index: number) => {
     if (isAnswered) return;
     setSelectedOption(index); setIsAnswered(true);
-    if (index === questions[currentIndex].correctIndex) {
+    const isCorrect = index === questions[currentIndex].correctIndex;
+    if (isCorrect) {
       setScore(s => s + 10);
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
     } else {
+      setWrongQuestions(prev => [...prev, questions[currentIndex]]);
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([50, 50, 50]);
     }
   };
@@ -133,9 +155,14 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1); setSelectedOption(null); setIsAnswered(false);
     } else {
-      updateHighScore(score); setView("result");
+      updateHighScore(score, effectiveMode);
+      setView("result");
     }
   };
+
+  const currentHighScore = effectiveMode === 'dictionary'
+    ? (progress.quizDictHighScore ?? 0)
+    : progress.quizHighScore;
 
   const containerClass = onBack ? "flex flex-col h-full" : "flex flex-col";
   const centeredClass = onBack
@@ -145,6 +172,7 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
   // ── HOME ────────────────────────────────────────────────────────────────
   if (view === "home") {
     const dictTooSmall = !dictReady && mode === 'dictionary';
+    const activeCards  = effectiveMode === 'dictionary' ? dictCards : staticCards;
     return (
       <div className={cn(containerClass, "space-y-10 py-4 animate-in fade-in duration-500")}>
         {onBack && (
@@ -161,7 +189,10 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
             <h1 className={cn("font-headline font-bold text-primary", onBack ? "text-3xl" : "text-4xl")}>單字能力測驗</h1>
             <div className="flex items-center justify-center gap-2 text-muted-foreground">
               <Trophy size={16} className="text-orange-500" />
-              <p className="text-sm font-medium">最高分：<span className="text-primary font-bold">{progress.quizHighScore}</span> 分</p>
+              <p className="text-sm font-medium">
+                {effectiveMode === 'dictionary' ? '字典模式' : '綜合模式'}最高分：
+                <span className="text-primary font-bold ml-1">{currentHighScore}</span> 分
+              </p>
             </div>
           </div>
 
@@ -184,10 +215,27 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
             />
           </div>
 
+          {/* 跳過已熟練（僅字典模式有意義） */}
+          {effectiveMode === 'dictionary' && masteredCount > 0 && (
+            <button
+              onClick={() => setSkipMastered(v => !v)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-full border-2 text-xs font-bold transition-colors",
+                skipMastered
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-border bg-card text-muted-foreground",
+              )}
+            >
+              {skipMastered ? <CheckCircle2 size={14} /> : <XCircle size={14} className="opacity-60" />}
+              排除已熟練（{masteredCount} 個）
+            </button>
+          )}
+
           {dictTooSmall ? (
             <div className="w-full max-w-xs space-y-3 text-center">
               <p className="text-sm text-muted-foreground">
-                字典裡至少需要 {MIN_FOR_QUIZ} 個單字才能開始我的字典測驗。
+                字典裡至少需要 {MIN_FOR_QUIZ} 個單字才能開始我的字典測驗
+                {skipMastered && masteredCount > 0 && '（已排除熟練單字）'}。
               </p>
               <Button asChild className="w-full h-12 rounded-xl">
                 <Link href="/">前往收藏單字</Link>
@@ -198,7 +246,7 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
               onClick={generateQuestions}
               className="w-full max-w-xs h-14 text-lg font-bold rounded-2xl shadow-lg bg-primary hover:bg-primary/90 transition-all active:scale-95"
             >
-              開始測驗 ({Math.min(10, mode === 'dictionary' ? dictCards.length : staticCards.length)} 題)
+              開始測驗 ({Math.min(10, activeCards.length)} 題)
             </Button>
           )}
         </div>
@@ -227,8 +275,16 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
               <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">分 / {totalScore}</span>
             </div>
           </div>
-          <div className="space-y-4 w-full max-w-xs">
-            <Button onClick={generateQuestions} className="w-full h-14 text-lg font-bold rounded-2xl shadow-md gap-2"><RotateCcw size={20} /> 再試一次</Button>
+          <div className="space-y-3 w-full max-w-xs">
+            {wrongQuestions.length > 0 && (
+              <Button
+                onClick={retryWrongOnly}
+                className="w-full h-14 text-lg font-bold rounded-2xl shadow-lg gap-2 bg-orange-600 hover:bg-orange-700"
+              >
+                <Repeat size={20} /> 只練錯題（{wrongQuestions.length} 題）
+              </Button>
+            )}
+            <Button onClick={generateQuestions} className="w-full h-14 text-lg font-bold rounded-2xl shadow-md gap-2"><RotateCcw size={20} /> 再來一輪</Button>
             <Button variant="ghost" onClick={() => setView('home')} className="w-full font-bold">返回首頁</Button>
             {onBack && <Button variant="ghost" onClick={onBack} className="w-full font-bold">返回實驗室</Button>}
           </div>
