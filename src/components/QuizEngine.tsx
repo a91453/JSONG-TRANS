@@ -349,18 +349,32 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
               className={cn(
                 "min-h-16 px-6 py-3 rounded-2xl border-2 transition-all flex items-center justify-between text-left group active:scale-[0.98]",
                 !isAnswered && "bg-card border-border hover:border-primary hover:bg-primary/5",
-                isAnswered && isCorrect && "bg-green-50 border-green-500 text-green-700 shadow-sm",
+                isAnswered && isCorrect && "bg-green-50 border-green-500 text-green-700 shadow-sm ring-2 ring-green-300/50",
                 isAnswered && isSelected && !isCorrect && "bg-destructive/5 border-destructive text-destructive shadow-sm",
                 isAnswered && !isCorrect && !isSelected && "opacity-40 grayscale-[0.5] border-border bg-muted/20",
               )}
             >
-              <span className="text-lg font-bold">{opt.text}</span>
+              <span className="text-lg font-bold flex items-center gap-2">
+                {isAnswered && isCorrect && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-green-500 text-white text-[10px] font-black uppercase tracking-widest shrink-0">正解</span>
+                )}
+                {opt.text}
+              </span>
               {isAnswered && isCorrect  && <CheckCircle2 size={24} className="text-green-500 animate-in zoom-in-50 shrink-0" />}
               {isAnswered && isSelected && !isCorrect && <XCircle size={24} className="text-destructive animate-in shake-1 shrink-0" />}
             </button>
           );
         })}
       </div>
+
+      {isAnswered && selectedOption !== null && selectedOption !== currentQuestion.correctIndex && (
+        <div className="rounded-2xl border-2 border-green-200 bg-green-50 p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <p className="text-[11px] font-black text-green-700 uppercase tracking-widest mb-1.5">✓ 正確答案</p>
+          <p className="text-base font-bold text-green-800">
+            {currentQuestion.options[currentQuestion.correctIndex]?.text}
+          </p>
+        </div>
+      )}
 
       {isAnswered && (
         <div className="pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300">

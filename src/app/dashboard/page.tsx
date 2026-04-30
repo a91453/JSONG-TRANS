@@ -154,7 +154,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-4">
         <StatCard title="單字掌握度" value={progress.learnedVocabularyCount} total={`/ ${totalVocab}`} icon={BookText} colorClass="bg-teal-500" />
-        <StatCard title="測驗最高分" value={progress.quizHighScore} total="分" icon={Trophy} colorClass="bg-orange-500" />
+        <StatCard title="測驗最高分" value={Math.max(progress.quizHighScore, progress.quizDictHighScore ?? 0)} total="分" icon={Trophy} colorClass="bg-orange-500" />
         <StatCard title="假名學習" value={progress.learnedKanaCount} total="次" icon={Type} colorClass="bg-pink-500" />
         <StatCard title="累積互動" value={progress.learnedKanaCount + progress.learnedVocabularyCount} total="次" icon={Zap} colorClass="bg-blue-500" />
         <StatCard title="字典收藏" value={entries.length} total="個" icon={Book} colorClass="bg-purple-500" />

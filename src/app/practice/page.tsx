@@ -258,21 +258,45 @@ export default function PracticePage() {
         </div>
       </header>
       <div className="space-y-4 pb-20">
-        <PracticeCard icon={Layers} title="單字閃卡" desc="沉浸式翻牌記憶，配合語音朗讀" color="bg-indigo-100 text-indigo-600" onClick={() => setView('flashcard')} />
-        <PracticeCard icon={Mic2} title="回音法 (Echo Method)" desc="聽發音，在心裡跟讀，然後點擊看答案" color="bg-purple-100 text-purple-600" onClick={() => setView('echo')} />
-        <PracticeCard icon={LayoutGrid} title="記憶配對遊戲" desc="將日文與正確的中文意思連線配對" color="bg-teal-100 text-teal-600" onClick={() => setView('matching')} />
-        <PracticeCard icon={GraduationCap} title="綜合測驗" desc="挑戰 10 題隨機選題，檢驗學習成果" color="bg-orange-100 text-orange-600" onClick={() => setView('quiz')} />
+        <PracticeCard icon={Layers} title="單字閃卡" desc="沉浸式翻牌記憶，配合語音朗讀" badge={`${effective.length} 字`} badgeTone={fromDictionary ? 'primary' : 'muted'} color="bg-indigo-100 text-indigo-600" onClick={() => setView('flashcard')} />
+        <PracticeCard icon={Mic2} title="回音法 (Echo Method)" desc="聽發音，在心裡跟讀，然後點擊看答案" badge={`${effective.length} 字`} badgeTone={fromDictionary ? 'primary' : 'muted'} color="bg-purple-100 text-purple-600" onClick={() => setView('echo')} />
+        <PracticeCard icon={LayoutGrid} title="記憶配對遊戲" desc="將日文與正確的中文意思連線配對" badge={effective.length >= 6 ? '6 對' : '需 6 個字'} badgeTone={effective.length >= 6 ? 'primary' : 'warning'} color="bg-teal-100 text-teal-600" onClick={() => setView('matching')} />
+        <PracticeCard icon={GraduationCap} title="綜合測驗" desc="挑戰隨機選題，檢驗學習成果" badge={`${Math.min(10, effective.length)} 題`} badgeTone={effective.length >= 4 ? 'primary' : 'warning'} color="bg-orange-100 text-orange-600" onClick={() => setView('quiz')} />
       </div>
     </div>
   );
 }
 
-function PracticeCard({ icon: Icon, title, desc, color, onClick }: { icon: any, title: string, desc: string, color: string, onClick: () => void }) {
+function PracticeCard({
+  icon: Icon, title, desc, badge, badgeTone = 'muted', color, onClick,
+}: {
+  icon: any;
+  title: string;
+  desc: string;
+  badge?: string;
+  badgeTone?: 'primary' | 'muted' | 'warning';
+  color: string;
+  onClick: () => void;
+}) {
+  const badgeClass =
+    badgeTone === 'primary' ? 'bg-primary/10 text-primary'
+    : badgeTone === 'warning' ? 'bg-orange-100 text-orange-700'
+    : 'bg-muted text-muted-foreground';
   return (
     <Card className="border-none shadow-md hover:shadow-lg transition-all cursor-pointer overflow-hidden group active:scale-[0.98]" onClick={onClick}>
       <CardContent className="p-6 flex items-center gap-6">
-        <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform", color)}><Icon size={32} /></div>
-        <div className="flex-1"><h3 className="text-lg font-bold">{title}</h3><p className="text-xs text-muted-foreground font-medium">{desc}</p></div>
+        <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shrink-0", color)}><Icon size={32} /></div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-lg font-bold">{title}</h3>
+            {badge && (
+              <span className={cn("text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full", badgeClass)}>
+                {badge}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground font-medium">{desc}</p>
+        </div>
         <ChevronRight className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
       </CardContent>
     </Card>
