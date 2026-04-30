@@ -17,7 +17,12 @@ import { convertToRomaji } from '@/lib/romaji-utils';
 interface SettingsState {
   themeMode: 'system' | 'light' | 'dark';
   lyricsFontSize: number;
-  defaultAnnotation: 'furigana' | 'romaji' | 'both' | 'none';
+  // 標注顯示偏好（可複選；預設 furigana 開、romaji 關、katakana 讀音開）
+  showFurigana: boolean;
+  showRomaji: boolean;
+  showKatakanaReading: boolean;
+  maxCharsPerLine: number;   // 0 = 不限制（standard 模式用）
+  wordCardMode: boolean;     // true = 彩色字卡模式
   loopCount: number;
   autoPlayOnTap: boolean;
   showTranslation: boolean;
@@ -27,9 +32,16 @@ interface SettingsState {
   geminiModel: string;
   groqApiKey: string;
   groqModel: string;
+  // Cloud Run 轉錄服務（使用者自備資源）
+  cloudRunGroqApiKey: string;
+  cloudRunCookieContent: string;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setLyricsFontSize: (size: number) => void;
-  setDefaultAnnotation: (mode: 'furigana' | 'romaji' | 'both' | 'none') => void;
+  setShowFurigana: (v: boolean) => void;
+  setShowRomaji: (v: boolean) => void;
+  setShowKatakanaReading: (v: boolean) => void;
+  setMaxCharsPerLine: (n: number) => void;
+  setWordCardMode: (v: boolean) => void;
   setLoopCount: (count: number) => void;
   setAutoPlayOnTap: (enabled: boolean) => void;
   setShowTranslation: (enabled: boolean) => void;
@@ -38,6 +50,8 @@ interface SettingsState {
   setGeminiModel: (model: string) => void;
   setGroqApiKey: (key: string) => void;
   setGroqModel: (model: string) => void;
+  setCloudRunGroqApiKey: (key: string) => void;
+  setCloudRunCookieContent: (content: string) => void;
   resetApiKeys: () => void;
 }
 
@@ -46,7 +60,11 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       themeMode: 'system',
       lyricsFontSize: 15,
-      defaultAnnotation: 'furigana',
+      showFurigana: true,
+      showRomaji: false,
+      showKatakanaReading: true,
+      maxCharsPerLine: 0,
+      wordCardMode: true,
       loopCount: 3,
       autoPlayOnTap: true,
       showTranslation: true,
@@ -55,9 +73,15 @@ export const useSettingsStore = create<SettingsState>()(
       geminiModel: 'googleai/gemini-2.5-flash',
       groqApiKey: '',
       groqModel: 'openai/llama-3.3-70b-versatile', // mixtral-8x7b-32768 已於 2025 年下架
+      cloudRunGroqApiKey: '',
+      cloudRunCookieContent: '',
       setThemeMode: (themeMode) => set({ themeMode }),
       setLyricsFontSize: (lyricsFontSize) => set({ lyricsFontSize }),
-      setDefaultAnnotation: (defaultAnnotation) => set({ defaultAnnotation }),
+      setShowFurigana: (showFurigana) => set({ showFurigana }),
+      setShowRomaji: (showRomaji) => set({ showRomaji }),
+      setShowKatakanaReading: (showKatakanaReading) => set({ showKatakanaReading }),
+      setMaxCharsPerLine: (maxCharsPerLine) => set({ maxCharsPerLine }),
+      setWordCardMode: (wordCardMode) => set({ wordCardMode }),
       setLoopCount: (loopCount) => set({ loopCount }),
       setAutoPlayOnTap: (autoPlayOnTap) => set({ autoPlayOnTap }),
       setShowTranslation: (showTranslation) => set({ showTranslation }),
@@ -66,15 +90,35 @@ export const useSettingsStore = create<SettingsState>()(
       setGeminiModel: (geminiModel) => set({ geminiModel }),
       setGroqApiKey: (groqApiKey) => set({ groqApiKey }),
       setGroqModel: (groqModel) => set({ groqModel }),
-      resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '' }),
+      setCloudRunGroqApiKey: (cloudRunGroqApiKey) => set({ cloudRunGroqApiKey }),
+      setCloudRunCookieContent: (cloudRunCookieContent) => set({ cloudRunCookieContent }),
+      resetApiKeys: () => set({ geminiApiKey: '', groqApiKey: '', cloudRunGroqApiKey: '', cloudRunCookieContent: '' }),
     }),
-    { name: 'nihongo-settings-storage-v5' }
+    {
+      name: 'nihongo-settings-storage-v5',
+      version: 1,
+      // v0 → v1：把單一 defaultAnnotation enum 轉為三個獨立 boolean
+      migrate: (persistedState: any, version: number) => {
+        if (version < 1) {
+          const mode = persistedState?.defaultAnnotation ?? 'furigana';
+          const { defaultAnnotation, ...rest } = persistedState ?? {};
+          return {
+            ...rest,
+            showFurigana:        mode === 'furigana' || mode === 'both',
+            showRomaji:          mode === 'romaji'   || mode === 'both',
+            showKatakanaReading: true,
+          };
+        }
+        return persistedState;
+      },
+    }
   )
 );
 
 // --- Dictionary Store ---
 interface DictionaryState {
   entries: DictEntry[];
+  hiddenPresets: string[];
   addEntry: (word: string, reading: string, videoId: string, songTitle: string, sentence: string, translation: string) => void;
   addAllFromSegment: (segment: Segment, videoId: string, songTitle: string) => void;
   removeEntry: (id: string) => void;
@@ -82,13 +126,23 @@ interface DictionaryState {
   toggleMastered: (id: string) => void;
   contains: (word: string, reading: string) => boolean;
   countForSong: (videoId: string) => number;
+  togglePresetHidden: (word: string) => void;
+  restoreAllPresets: () => void;
+  isPresetHidden: (word: string) => boolean;
+  markSeen: (id: string) => void;
+  markSeenByWord: (word: string, reading: string) => void;
+  setWordTranslation: (id: string, translation: string) => void;
+  countMissingTranslations: () => number;
+  importEntries: (incoming: DictEntry[]) => number;
 }
 
 export const useDictionaryStore = create<DictionaryState>()(
   persist(
     (set, get) => ({
       entries: [],
+      hiddenPresets: [],
       addEntry: (word, reading, videoId, songTitle, sentence, translation) => {
+        if (!word || !reading) return;
         const { entries } = get();
         const existingIdx = entries.findIndex(e => e.word === word && e.reading === reading);
         const source: WordSource = { id: crypto.randomUUID(), videoId, songTitle, sentence, translation };
@@ -115,9 +169,11 @@ export const useDictionaryStore = create<DictionaryState>()(
         set({ entries: [newEntry, ...entries] });
       },
       addAllFromSegment: (segment, videoId, songTitle) => {
-        segment.furigana.forEach(item => {
-          get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
-        });
+        (segment.furigana ?? [])
+          .filter(item => item.word && item.reading)
+          .forEach(item => {
+            get().addEntry(item.word, item.reading, videoId, songTitle, segment.japanese, segment.translation);
+          });
       },
       removeEntry: (id) => set(state => ({
         entries: state.entries.filter(e => e.id !== id),
@@ -128,6 +184,75 @@ export const useDictionaryStore = create<DictionaryState>()(
       })),
       contains: (word, reading) => get().entries.some(e => e.word === word && e.reading === reading),
       countForSong: (videoId) => get().entries.filter(e => e.sources.some(s => s.videoId === videoId)).length,
+      togglePresetHidden: (word) => set(state => ({
+        hiddenPresets: state.hiddenPresets.includes(word)
+          ? state.hiddenPresets.filter(w => w !== word)
+          : [...state.hiddenPresets, word],
+      })),
+      restoreAllPresets: () => set({ hiddenPresets: [] }),
+      isPresetHidden: (word) => get().hiddenPresets.includes(word),
+      markSeen: (id) => set(state => ({
+        entries: state.entries.map(e => e.id === id ? { ...e, lastSeenAt: new Date().toISOString() } : e),
+      })),
+      markSeenByWord: (word, reading) => set(state => {
+        const now = new Date().toISOString();
+        return {
+          entries: state.entries.map(e =>
+            e.word === word && e.reading === reading ? { ...e, lastSeenAt: now } : e),
+        };
+      }),
+      setWordTranslation: (id, translation) => set(state => ({
+        entries: state.entries.map(e => e.id === id ? { ...e, wordTranslation: translation } : e),
+      })),
+      countMissingTranslations: () => get().entries.filter(e => !e.wordTranslation?.trim()).length,
+      importEntries: (incoming) => {
+        let merged = 0, added = 0;
+        const sourceKey = (s: WordSource) => `${s.videoId}|${s.sentence}`;
+        set(state => {
+          const out = [...state.entries];
+          incoming.forEach(inc => {
+            if (!inc?.word || !inc?.reading) return;
+            const idx = out.findIndex(e => e.word === inc.word && e.reading === inc.reading);
+            const sources = Array.isArray(inc.sources)
+              ? inc.sources.filter(s => s?.videoId && s?.songTitle && s?.sentence && s?.translation)
+              : [];
+            if (idx === -1) {
+              out.unshift({
+                id:              crypto.randomUUID(),
+                word:            inc.word,
+                reading:         inc.reading,
+                romaji:          inc.romaji ?? convertToRomaji(inc.reading),
+                sources:         sources.map(({ id: _ignore, ...rest }) => ({ id: crypto.randomUUID(), ...rest })),
+                addedDate:       inc.addedDate ?? new Date().toISOString(),
+                mastered:        !!inc.mastered,
+                wordTranslation: inc.wordTranslation,
+                lastSeenAt:      inc.lastSeenAt,
+              });
+              added++;
+            } else {
+              const existing     = out[idx];
+              const existingKeys = new Set(existing.sources.map(sourceKey));
+              const newSources   = sources
+                .filter(s => !existingKeys.has(sourceKey(s)))
+                .map(({ id: _ignore, ...rest }) => ({ id: crypto.randomUUID(), ...rest }));
+              out[idx] = {
+                ...existing,
+                sources:         [...existing.sources, ...newSources],
+                wordTranslation: existing.wordTranslation || inc.wordTranslation,
+                mastered:        existing.mastered || !!inc.mastered,
+                lastSeenAt: (() => {
+                  const a = existing.lastSeenAt, b = inc.lastSeenAt;
+                  if (a && b) return a > b ? a : b;
+                  return a || b;
+                })(),
+              };
+              merged++;
+            }
+          });
+          return { entries: out };
+        });
+        return added + merged;
+      },
     }),
     { name: 'nihongo-dictionary-storage-v3' }
   )
@@ -148,7 +273,13 @@ export const useHistoryStore = create<HistoryState>()(
       items: [],
       results: {},
       saveResult: (response, title, artist) => set(state => {
-        const videoId = response.videoId;
+        const videoId  = response.videoId;
+        const existing = state.results[videoId];
+        // 若現有結果比新結果更完整（更多段落），拒絕覆蓋（防止失敗結果覆蓋成功結果）
+        // forceRefresh 路徑會先呼叫 removeByVideoId，使 existing 為 undefined，故不受影響
+        if (existing && existing.segments.length > response.segments.length) {
+          return state;
+        }
         const newMeta: VideoHistoryMeta = {
           id: crypto.randomUUID(),
           videoId,
@@ -253,7 +384,7 @@ interface ProgressState {
   progress: ProgressData;
   addKana: () => void;
   addVocab: () => void;
-  updateHighScore: (score: number) => void;
+  updateHighScore: (score: number, mode?: 'comprehensive' | 'dictionary') => void;
   checkDailyReset: () => void;
 }
 
@@ -264,6 +395,7 @@ export const useProgressStore = create<ProgressState>()(
         learnedKanaCount: 0,
         learnedVocabularyCount: 0,
         quizHighScore: 0,
+        quizDictHighScore: 0,
         dailyKanaCount: 0,
         dailyVocabCount: 0,
         lastResetDate: ''
@@ -295,10 +427,19 @@ export const useProgressStore = create<ProgressState>()(
           lastResetDate: today
         } };
       }),
-      updateHighScore: (score) => set(state => ({
-        progress: { ...state.progress, quizHighScore: Math.max(state.progress.quizHighScore, score) }
-      }))
+      updateHighScore: (score, mode = 'comprehensive') => set(state => {
+        const key = mode === 'dictionary' ? 'quizDictHighScore' : 'quizHighScore';
+        return { progress: { ...state.progress, [key]: Math.max(state.progress[key] ?? 0, score) } };
+      })
     }),
-    { name: 'nihongo-progress-storage-v3' }
+    {
+      name: 'nihongo-progress-storage-v3',
+      // 舊版本沒有 quizDictHighScore；補預設 0 避免 undefined 比大小炸開
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as ProgressState),
+        progress: { ...current.progress, ...((persisted as ProgressState)?.progress ?? {}) },
+      }),
+    }
   )
 );

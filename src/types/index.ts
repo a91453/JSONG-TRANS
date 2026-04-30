@@ -18,7 +18,7 @@ export interface AnalyzeResponse {
   videoId: string;
   duration: number;
   segments: Segment[];
-  source: 'server-sub' | 'server-sub-auto' | 'whisper-groq' | 'genkit-ai' | 'cache' | 'lrclib';
+  source: 'youtube-official' | 'youtube-auto' | 'external' | 'manual' | 'whisper-groq' | 'genkit-ai' | 'cache' | 'lrclib' | 'server-sub' | 'server-sub-auto';
 }
 
 export interface YouTubeVideoInfo {
@@ -52,6 +52,10 @@ export interface DictEntry {
   sources: WordSource[];
   addedDate: string; // ISO String
   mastered: boolean;
+  /** AI 補全的單字級翻譯（可空字串，由使用者按「補全字義」批次取得） */
+  wordTranslation?: string;
+  /** 最近一次看到 / 練習這個字的 ISO 時間，供 SRS 排序：越久未見越優先 */
+  lastSeenAt?: string;
 }
 
 export interface FavoriteSegment {
@@ -76,7 +80,10 @@ export interface StreakData {
 export interface ProgressData {
   learnedKanaCount: number;
   learnedVocabularyCount: number;
+  /** 綜合詞庫測驗最高分（題目來自 VocabularyData） */
   quizHighScore: number;
+  /** 我的字典測驗最高分（題目來自使用者收藏） */
+  quizDictHighScore: number;
   dailyKanaCount: number;
   dailyVocabCount: number;
   lastResetDate: string;

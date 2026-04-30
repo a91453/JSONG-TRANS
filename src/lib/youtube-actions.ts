@@ -15,6 +15,7 @@ import { fetchYouTubeCaptions } from './youtube-captions';
 import { searchLrcLib } from './lrclib';
 import { secondsToSrtTime } from './subtitle-utils';
 import { transcribeYouTubeWithWhisper } from './groq-whisper';
+import { parseFuriganaString, stripFurigana, type FuriganaItem } from './furigana-parser';
 
 // ── 型別定義 ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,8 @@ export interface RawSegment {
   start: number;
   end: number;
   text: string;
+  /** 預標注振假名（由 Cloud Run 轉錄服務提供）；存在時可跳過 AI 標注步驟 */
+  furigana?: FuriganaItem[];
 }
 
 export interface SmartSubtitleResult {
@@ -95,19 +98,30 @@ async function writeCache(result: SmartSubtitleResult): Promise<void> {
  */
 async function fetchExternalTranscription(
   videoId: string,
-  googleToken?: string
+  googleToken?: string,
+  userGroqApiKey?: string,
+  userCookieContent?: string,
 ): Promise<RawSegment[] | null> {
   const serviceUrl = process.env.SUBTITLE_SERVICE_URL;
   if (!serviceUrl) return null;
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const secret = process.env.SUBTITLE_SERVICE_SECRET;
   if (secret) headers['X-Service-Secret'] = secret;
   if (googleToken) headers['X-Google-Token'] = googleToken;
 
+  const body: Record<string, string> = {
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+  };
+  // 只有非空字串才傳入，避免把空值當有效輸入送給 Cloud Run
+  if (userGroqApiKey)    body.api_key       = userGroqApiKey;
+  if (userCookieContent) body.cookie_content = userCookieContent;
+
   try {
-    const res = await fetch(`${serviceUrl}/api/transcribe?v=${videoId}`, {
+    const res = await fetch(`${serviceUrl}/process`, {
+      method: 'POST',
       headers,
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(180_000),
     });
     if (!res.ok) {
@@ -121,9 +135,21 @@ async function fetchExternalTranscription(
       return null;
     }
     const data = await res.json();
-    const segs: RawSegment[] = (data.segments ?? []).filter(
-      (s: any) => typeof s.start === 'number' && typeof s.end === 'number' && s.text
-    );
+    const segs: RawSegment[] = (data.segments ?? [])
+      .filter((s: any) => typeof s.start === 'number' && typeof s.end === 'number' && (s.text || s.furigana))
+      .map((s: any): RawSegment => {
+        // Cloud Run 若提供 furigana 字串（含 inline 讀音），解析為陣列並還原純日文 text
+        const parsed = parseFuriganaString(typeof s.furigana === 'string' ? s.furigana : null);
+        const text: string =
+          (typeof s.text === 'string' && s.text.trim()) ? s.text
+          : stripFurigana(typeof s.furigana === 'string' ? s.furigana : '');
+        return {
+          start: s.start,
+          end:   s.end,
+          text,
+          ...(parsed.length > 0 ? { furigana: parsed } : {}),
+        };
+      });
     return segs.length >= 3 ? segs : null;
   } catch (e: any) {
     if (e.message === 'YOUTUBE_AUTH_REQUIRED') throw e;
@@ -139,8 +165,8 @@ async function fetchExternalTranscription(
  *
  * 優先順序：
  *   1. Firestore 快取（30 天 TTL）
- *   2. YouTube 官方字幕 → 自動字幕（免 AI 成本，時間軸 100% 精準）
- *   3. 外部語音微服務 Cloud Run（需設定 SUBTITLE_SERVICE_URL，yt-dlp + Groq）
+ *   2. 外部語音微服務 Cloud Run（需設定 SUBTITLE_SERVICE_URL，yt-dlp + Groq）
+ *   3. YouTube 官方字幕 → 自動字幕（免 AI 成本，時間軸 100% 精準）
  *   4. Groq Whisper 語音聽寫（groqApiKey 有值時啟用，直接呼叫 Groq API 轉錄）
  *   5. LrcLib 同步歌詞（常見日文歌曲資料庫，速度快）
  *   6. 回傳 null → 由 analyze-video 降級至 AI 完整生成
@@ -156,7 +182,9 @@ export async function getSmartSubtitles(
   videoTitle: string = '',
   forceRefresh = false,
   googleToken?: string,
-  groqApiKey?: string
+  groqApiKey?: string,
+  cloudRunGroqApiKey?: string,
+  cloudRunCookieContent?: string,
 ): Promise<SmartSubtitleResult | null> {
   const isYouTube = videoId.length === 11;
 
@@ -168,7 +196,7 @@ export async function getSmartSubtitles(
     if (cached) return cached;
   }
 
-  // ── 2. YouTube 官方/自動字幕（時間軸 100% 精準，免 AI 成本）──────────
+  // ── 2. YouTube 官方/自動字幕（時間軸 100% 精準，免 AI 成本，優先使用）──
   if (isYouTube) {
     const captionResult = await fetchYouTubeCaptions(videoId).catch(() => null);
     if (captionResult && captionResult.captions.length >= 3) {
@@ -184,7 +212,7 @@ export async function getSmartSubtitles(
 
   // ── 3. 外部語音微服務 Cloud Run（SUBTITLE_SERVICE_URL 未設定則跳過）────
   {
-    const extSegments = await fetchExternalTranscription(videoId, googleToken);
+    const extSegments = await fetchExternalTranscription(videoId, googleToken, cloudRunGroqApiKey, cloudRunCookieContent);
     if (extSegments) {
       const result: SmartSubtitleResult = {
         videoId,

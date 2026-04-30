@@ -4,10 +4,10 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VocabularyData, VocabularyWord } from "@/lib/constants/data";
-import { useProgressStore } from "@/store/use-app-store";
+import { useProgressStore, useDictionaryStore } from "@/store/use-app-store";
 import { FlipCard } from "@/components/FlipCard";
 import { QuizEngine } from "@/components/QuizEngine";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Mic2,
   LayoutGrid,
@@ -34,15 +34,36 @@ const shuffle = <T,>(array: T[]): T[] => {
   return newArray;
 };
 
+// 將使用者收藏的字典條目轉成練習用的 VocabularyWord 形狀
+// （以最早收藏的句子翻譯作為意義，category 顯示來源歌曲）
+function useEffectiveWords(): { words: VocabularyWord[]; fromDictionary: boolean } {
+  const { entries, hiddenPresets } = useDictionaryStore();
+  return useMemo(() => {
+    const dictWords: VocabularyWord[] = entries
+      .filter(e => e.sources.length > 0 && e.sources[0].translation.trim())
+      .map(e => ({
+        word:        e.word,
+        furigana:    e.reading,
+        translation: e.sources[0].translation,
+        category:    e.sources[0].songTitle || '我的字典',
+      }));
+    // 至少 6 個才能撐起記憶配對；不足則退回靜態詞庫（已排除使用者隱藏的預設詞）
+    if (dictWords.length >= 6) return { words: dictWords, fromDictionary: true };
+    const visiblePresets = VocabularyData.words.filter(w => !hiddenPresets.includes(w.word));
+    return { words: visiblePresets, fromDictionary: false };
+  }, [entries, hiddenPresets]);
+}
+
 // --- Echo Method View ---
 function EchoMethodView({ onBack }: { onBack: () => void }) {
+  const { words: source } = useEffectiveWords();
   const [words, setWords] = useState<VocabularyWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRevealed, setIsRevealed] = useState(false);
 
   useEffect(() => {
-    setWords(shuffle(VocabularyData.words));
-  }, []);
+    setWords(shuffle(source));
+  }, [source]);
 
   useEffect(() => {
     if (words.length > 0) {
@@ -57,7 +78,7 @@ function EchoMethodView({ onBack }: { onBack: () => void }) {
     setIsRevealed(false);
     let nextIndex = currentIndex + 1;
     if (nextIndex >= words.length) {
-      setWords(shuffle(VocabularyData.words));
+      setWords(shuffle(source));
       setCurrentIndex(0);
     } else {
       setCurrentIndex(nextIndex);
@@ -104,12 +125,13 @@ function EchoMethodView({ onBack }: { onBack: () => void }) {
 interface MatchingCard { id: string; text: string; pairId: string; isFaceUp: boolean; isMatched: boolean; }
 
 function MatchingGameView({ onBack }: { onBack: () => void }) {
+  const { words: source } = useEffectiveWords();
   const [cards, setCards] = useState<MatchingCard[]>([]);
   const [selectedCards, setSelectedCards] = useState<MatchingCard[]>([]);
   const [isGameOver, setIsGameOver] = useState(false);
 
   const setupGame = useCallback(() => {
-    const randomWords = shuffle(VocabularyData.words).slice(0, 6);
+    const randomWords = shuffle(source).slice(0, 6);
     let newCards: MatchingCard[] = [];
     randomWords.forEach((word) => {
       const pairId = Math.random().toString(36).substring(2, 9);
@@ -119,7 +141,7 @@ function MatchingGameView({ onBack }: { onBack: () => void }) {
     setCards(shuffle(newCards));
     setIsGameOver(false);
     setSelectedCards([]);
-  }, []);
+  }, [source]);
 
   useEffect(() => { setupGame(); }, [setupGame]);
 
@@ -171,19 +193,20 @@ function MatchingGameView({ onBack }: { onBack: () => void }) {
 
 // --- Flashcard View ---
 function FlashcardView({ onBack }: { onBack: () => void }) {
+  const { words: source } = useEffectiveWords();
   const [words, setWords] = useState<VocabularyWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const { addVocab } = useProgressStore();
 
-  useEffect(() => { setWords(shuffle(VocabularyData.words)); }, []);
+  useEffect(() => { setWords(shuffle(source)); }, [source]);
 
   const handleFlip = () => { if (!isFlipped) speak(words[currentIndex].word); setIsFlipped(!isFlipped); };
 
   const handleNext = () => {
     setIsFlipped(false);
     if (currentIndex < words.length - 1) setCurrentIndex(currentIndex + 1);
-    else { addVocab(); setWords(shuffle(VocabularyData.words)); setCurrentIndex(0); }
+    else { addVocab(); setWords(shuffle(source)); setCurrentIndex(0); }
   };
 
   const handlePrev = () => { setIsFlipped(false); setCurrentIndex(prev => Math.max(0, prev - 1)); };
@@ -213,6 +236,7 @@ function FlashcardView({ onBack }: { onBack: () => void }) {
 // --- Main Practice Page ---
 export default function PracticePage() {
   const [view, setView] = useState<'home' | 'echo' | 'matching' | 'flashcard' | 'quiz'>('home');
+  const { words: effective, fromDictionary } = useEffectiveWords();
 
   if (view === 'echo') return <div className="px-4 h-[calc(100vh-64px)]"><EchoMethodView onBack={() => setView('home')} /></div>;
   if (view === 'matching') return <div className="px-4 h-[calc(100vh-64px)]"><MatchingGameView onBack={() => setView('home')} /></div>;
@@ -224,23 +248,55 @@ export default function PracticePage() {
       <header className="py-4">
         <h1 className="text-3xl font-headline font-bold text-primary">練習實驗室</h1>
         <p className="text-muted-foreground font-medium">選擇您的訓練方式，精進日語能力</p>
+        <div className={cn(
+          "mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold",
+          fromDictionary ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+        )}>
+          {fromDictionary
+            ? `📚 練習題庫：我的字典（${effective.length} 個收藏單字）`
+            : `📖 練習題庫：綜合詞庫（收藏 6 個以上自動切換）`}
+        </div>
       </header>
       <div className="space-y-4 pb-20">
-        <PracticeCard icon={Layers} title="單字閃卡" desc="沉浸式翻牌記憶，配合語音朗讀" color="bg-indigo-100 text-indigo-600" onClick={() => setView('flashcard')} />
-        <PracticeCard icon={Mic2} title="回音法 (Echo Method)" desc="聽發音，在心裡跟讀，然後點擊看答案" color="bg-purple-100 text-purple-600" onClick={() => setView('echo')} />
-        <PracticeCard icon={LayoutGrid} title="記憶配對遊戲" desc="將日文與正確的中文意思連線配對" color="bg-teal-100 text-teal-600" onClick={() => setView('matching')} />
-        <PracticeCard icon={GraduationCap} title="綜合測驗" desc="挑戰 10 題隨機選題，檢驗學習成果" color="bg-orange-100 text-orange-600" onClick={() => setView('quiz')} />
+        <PracticeCard icon={Layers} title="單字閃卡" desc="沉浸式翻牌記憶，配合語音朗讀" badge={`${effective.length} 字`} badgeTone={fromDictionary ? 'primary' : 'muted'} color="bg-indigo-100 text-indigo-600" onClick={() => setView('flashcard')} />
+        <PracticeCard icon={Mic2} title="回音法 (Echo Method)" desc="聽發音，在心裡跟讀，然後點擊看答案" badge={`${effective.length} 字`} badgeTone={fromDictionary ? 'primary' : 'muted'} color="bg-purple-100 text-purple-600" onClick={() => setView('echo')} />
+        <PracticeCard icon={LayoutGrid} title="記憶配對遊戲" desc="將日文與正確的中文意思連線配對" badge={effective.length >= 6 ? '6 對' : '需 6 個字'} badgeTone={effective.length >= 6 ? 'primary' : 'warning'} color="bg-teal-100 text-teal-600" onClick={() => setView('matching')} />
+        <PracticeCard icon={GraduationCap} title="綜合測驗" desc="挑戰隨機選題，檢驗學習成果" badge={`${Math.min(10, effective.length)} 題`} badgeTone={effective.length >= 4 ? 'primary' : 'warning'} color="bg-orange-100 text-orange-600" onClick={() => setView('quiz')} />
       </div>
     </div>
   );
 }
 
-function PracticeCard({ icon: Icon, title, desc, color, onClick }: { icon: any, title: string, desc: string, color: string, onClick: () => void }) {
+function PracticeCard({
+  icon: Icon, title, desc, badge, badgeTone = 'muted', color, onClick,
+}: {
+  icon: any;
+  title: string;
+  desc: string;
+  badge?: string;
+  badgeTone?: 'primary' | 'muted' | 'warning';
+  color: string;
+  onClick: () => void;
+}) {
+  const badgeClass =
+    badgeTone === 'primary' ? 'bg-primary/10 text-primary'
+    : badgeTone === 'warning' ? 'bg-orange-100 text-orange-700'
+    : 'bg-muted text-muted-foreground';
   return (
     <Card className="border-none shadow-md hover:shadow-lg transition-all cursor-pointer overflow-hidden group active:scale-[0.98]" onClick={onClick}>
       <CardContent className="p-6 flex items-center gap-6">
-        <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform", color)}><Icon size={32} /></div>
-        <div className="flex-1"><h3 className="text-lg font-bold">{title}</h3><p className="text-xs text-muted-foreground font-medium">{desc}</p></div>
+        <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shrink-0", color)}><Icon size={32} /></div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-lg font-bold">{title}</h3>
+            {badge && (
+              <span className={cn("text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full", badgeClass)}>
+                {badge}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground font-medium">{desc}</p>
+        </div>
         <ChevronRight className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
       </CardContent>
     </Card>
