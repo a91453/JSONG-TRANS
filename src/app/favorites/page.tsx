@@ -12,8 +12,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Trash2, Music, Clock, ChevronRight, BookOpen, Disc3 } from "lucide-react";
+import { ArrowLeft, Trash2, Music, Clock, ChevronRight, BookOpen, Disc3, Download } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import { formatTime } from "@/lib/utils";
+import { generateSRT } from "@/lib/subtitle-utils";
 
 export default function FavoritesPage() {
   const { items, removeFavorite } = useFavoriteStore();
@@ -48,11 +57,96 @@ export default function FavoritesPage() {
     [openSongData, entries]
   );
 
+  // ── 匯出收藏 ───────────────────────────────────────────────────────
+  const triggerDownload = (filename: string, content: string, mime: string) => {
+    const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAsJSON = () => {
+    if (items.length === 0) return;
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      count: items.length,
+      items,
+    };
+    triggerDownload(`favorites-${Date.now()}.json`, JSON.stringify(payload, null, 2), 'application/json');
+  };
+
+  const exportAsTSV = () => {
+    if (items.length === 0) return;
+    const headers = ['歌曲', '時間', '日文', '中文翻譯'].join('\t');
+    const rows    = items.map(f => [
+      f.songTitle.replace(/[\t\n]/g, ' '),
+      formatTime(f.start),
+      f.japanese.replace(/[\t\n]/g, ' '),
+      f.translation.replace(/[\t\n]/g, ' '),
+    ].join('\t'));
+    triggerDownload(`favorites-${Date.now()}.tsv`, [headers, ...rows].join('\n'), 'text/tab-separated-values');
+  };
+
+  const exportAsSRT = () => {
+    if (items.length === 0) return;
+    // 依 videoId 分組，每首歌一份 SRT 並用分隔線串接（單一檔案）
+    const byVideo = new Map<string, typeof items>();
+    items.forEach(f => {
+      const list = byVideo.get(f.videoId) ?? [];
+      list.push(f);
+      byVideo.set(f.videoId, list);
+    });
+    const sections: string[] = [];
+    byVideo.forEach((list, videoId) => {
+      const songTitle = list[0]?.songTitle ?? videoId;
+      const sorted    = [...list].sort((a, b) => a.start - b.start);
+      const segs      = sorted.map(f => ({ start: f.start, end: f.end, japanese: f.japanese, translation: f.translation }));
+      sections.push(`# ${songTitle} (${videoId})\n\n${generateSRT(segs)}`);
+    });
+    triggerDownload(`favorites-${Date.now()}.srt`, sections.join('\n\n'), 'text/plain');
+  };
+
   return (
     <div className="space-y-6 px-6 py-6">
-      <header className="flex items-center gap-4">
-        <Link href="/"><Button variant="ghost" size="icon" className="rounded-full"><ArrowLeft /></Button></Link>
-        <h1 className="text-2xl font-headline font-bold text-primary">收藏</h1>
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-4">
+          <Link href="/"><Button variant="ghost" size="icon" className="rounded-full"><ArrowLeft /></Button></Link>
+          <h1 className="text-2xl font-headline font-bold text-primary">收藏</h1>
+        </div>
+        {items.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="rounded-full gap-1.5"><Download size={14} /> 匯出</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="rounded-xl">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-widest">匯出 {items.length} 句</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={exportAsSRT} className="gap-2 text-xs">
+                <span className="text-base">📺</span>
+                <div>
+                  <p className="font-bold">SRT 字幕檔</p>
+                  <p className="text-[9px] text-muted-foreground">可直接配影片使用</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportAsTSV} className="gap-2 text-xs">
+                <span className="text-base">📊</span>
+                <div>
+                  <p className="font-bold">TSV 表格</p>
+                  <p className="text-[9px] text-muted-foreground">可貼到 Excel / Anki</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportAsJSON} className="gap-2 text-xs">
+                <span className="text-base">📦</span>
+                <div>
+                  <p className="font-bold">JSON 完整備份</p>
+                  <p className="text-[9px] text-muted-foreground">可日後重新匯入</p>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </header>
 
       <Tabs defaultValue="sentences" className="w-full">

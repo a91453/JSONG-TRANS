@@ -298,6 +298,11 @@ function LearnContent() {
   const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "檔案過大", description: `上限 2 MB，目前 ${(file.size / 1024 / 1024).toFixed(1)} MB` })
+      if (e.target) e.target.value = ""
+      return
+    }
     const reader = new FileReader()
     reader.onload = (ev) => {
       setImportText(ev.target?.result as string)
@@ -309,6 +314,11 @@ function LearnContent() {
 
   const handleManualImport = async () => {
     if (!importText.trim()) return
+    // 防呆：textarea 貼上的內容也要限制大小
+    if (importText.length > 2 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "內容過大", description: "字幕文字超過 2 MB，請拆分後分次匯入" })
+      return
+    }
     const provider = settings.aiProvider
     const apiKey   = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey
     if (!apiKey) {

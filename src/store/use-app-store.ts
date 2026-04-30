@@ -143,30 +143,32 @@ export const useDictionaryStore = create<DictionaryState>()(
       hiddenPresets: [],
       addEntry: (word, reading, videoId, songTitle, sentence, translation) => {
         if (!word || !reading) return;
-        const { entries } = get();
-        const existingIdx = entries.findIndex(e => e.word === word && e.reading === reading);
-        const source: WordSource = { id: crypto.randomUUID(), videoId, songTitle, sentence, translation };
-
-        if (existingIdx !== -1) {
-          const updated = [...entries];
-          const entry = updated[existingIdx];
-          if (!entry.sources.some(s => s.videoId === videoId && s.sentence === sentence)) {
-            entry.sources.push(source);
-            set({ entries: updated });
+        // 用 callback 形式 set 確保 findIndex 與 entries 寫入是 atomic：
+        // 同一 tick 連續呼叫（例如 addAllFromSegment 對同一個字觸發兩次）
+        // 都能看到前一次的結果，不會建出重複條目
+        set(state => {
+          const existingIdx = state.entries.findIndex(e => e.word === word && e.reading === reading);
+          const source: WordSource = { id: crypto.randomUUID(), videoId, songTitle, sentence, translation };
+          if (existingIdx !== -1) {
+            const entry = state.entries[existingIdx];
+            if (entry.sources.some(s => s.videoId === videoId && s.sentence === sentence)) {
+              return state; // 已存在相同來源 → no-op
+            }
+            const updated = [...state.entries];
+            updated[existingIdx] = { ...entry, sources: [...entry.sources, source] };
+            return { entries: updated };
           }
-          return;
-        }
-
-        const newEntry: DictEntry = {
-          id: crypto.randomUUID(),
-          word,
-          reading,
-          romaji: convertToRomaji(reading),
-          sources: [source],
-          addedDate: new Date().toISOString(),
-          mastered: false
-        };
-        set({ entries: [newEntry, ...entries] });
+          const newEntry: DictEntry = {
+            id: crypto.randomUUID(),
+            word,
+            reading,
+            romaji: convertToRomaji(reading),
+            sources: [source],
+            addedDate: new Date().toISOString(),
+            mastered: false,
+          };
+          return { entries: [newEntry, ...state.entries] };
+        });
       },
       addAllFromSegment: (segment, videoId, songTitle) => {
         (segment.furigana ?? [])
