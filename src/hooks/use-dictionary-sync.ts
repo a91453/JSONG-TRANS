@@ -35,7 +35,7 @@ export function useDictionarySync() {
   const [error, setError] = useState<string | null>(null);
   const dict = useDictionaryStore();
 
-  const upload = useCallback(async (): Promise<{ ok: boolean; updatedAt?: number }> => {
+  const upload = useCallback(async (): Promise<{ ok: boolean; updatedAt?: number; error?: string }> => {
     setBusy(true); setError(null);
     try {
       const token = await getIdToken();
@@ -57,14 +57,15 @@ export function useDictionarySync() {
       if (!res.ok || !data.ok) throw new Error(data.error ?? '上傳失敗');
       return { ok: true, updatedAt: data.updatedAt };
     } catch (e: any) {
-      setError(e?.message ?? String(e));
-      return { ok: false };
+      const msg = e?.message ?? String(e);
+      setError(msg);
+      return { ok: false, error: msg };
     } finally {
       setBusy(false);
     }
   }, [dict.entries, dict.hiddenPresets]);
 
-  const download = useCallback(async (mode: 'merge' | 'replace'): Promise<{ ok: boolean; processed?: number }> => {
+  const download = useCallback(async (mode: 'merge' | 'replace'): Promise<{ ok: boolean; processed?: number; error?: string }> => {
     setBusy(true); setError(null);
     try {
       const token = await getIdToken();
@@ -94,8 +95,9 @@ export function useDictionarySync() {
       }
       return { ok: true, processed };
     } catch (e: any) {
-      setError(e?.message ?? String(e));
-      return { ok: false };
+      const msg = e?.message ?? String(e);
+      setError(msg);
+      return { ok: false, error: msg };
     } finally {
       setBusy(false);
     }

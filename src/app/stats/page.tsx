@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useDictionaryStore, useFavoriteStore, useStreakStore } from "@/store/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,6 +29,9 @@ export default function StatsPage() {
   const { entries }      = useDictionaryStore();
   const { items: favs }  = useFavoriteStore();
   const { streak }       = useStreakStore();
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => { setIsMounted(true); }, []);
+  if (!isMounted) return null;
 
   // ── 近 30 日新增單字數 ─────────────────────────────────────────────────
   const dailyData = useMemo(() => {

@@ -245,19 +245,21 @@ export default function PracticePage() {
   const [view, setView] = useState<'home' | 'echo' | 'matching' | 'flashcard' | 'quiz' | 'dictation' | 'sentence-sort'>('home');
   const { words: effective, fromDictionary } = useEffectiveWords();
   const { entries: dictEntries } = useDictionaryStore();
-  const { results: historyResults } = useHistoryStore();
+  const { results: historyResults, items: historyItems } = useHistoryStore();
   // 句子排序遊戲可用的歷史句子數（取出≥3 個 furigana 的句子才有意思排）
   const sortableSentences = useMemo(() => {
     const out: { videoId: string; songTitle: string; segment: Segment }[] = [];
     Object.entries(historyResults).forEach(([videoId, resp]) => {
+      const meta = historyItems.find(i => i.videoId === videoId);
+      const songTitle = meta?.songTitle ?? '';
       resp.segments.forEach(seg => {
         if (seg.japanese && seg.furigana && seg.furigana.length >= 2) {
-          out.push({ videoId, songTitle: '', segment: seg });
+          out.push({ videoId, songTitle, segment: seg });
         }
       });
     });
     return out;
-  }, [historyResults]);
+  }, [historyResults, historyItems]);
 
   if (view === 'echo') return <div className="px-4 h-[calc(100vh-64px)]"><EchoMethodView onBack={() => setView('home')} /></div>;
   if (view === 'matching') return <div className="px-4 h-[calc(100vh-64px)]"><MatchingGameView onBack={() => setView('home')} /></div>;

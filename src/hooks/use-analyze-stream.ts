@@ -86,14 +86,16 @@ export function useAnalyzeStream() {
     setLoadingStage('連線中…');
 
     // ── 快取檢查（forceRefresh 時跳過並清除）──────────────────────────────
+    // 使用 getState() 而非閉包捕捉的 historyStore，避免 saveResult 後立即呼叫
+    // analyze 時讀到舊快照而錯失剛儲存的結果（stale closure 問題）
     if (!forceRefresh) {
-      const cached = historyStore.results[videoId];
+      const cached = useHistoryStore.getState().results[videoId];
       if (cached) {
         setResponse({ ...cached, source: 'cache' });
         setStreamedSegments(cached.segments ?? []);
         setIsLoading(false);
         isLoadingRef.current = false;
-        const meta = historyStore.items.find(i => i.videoId === videoId);
+        const meta = useHistoryStore.getState().items.find(i => i.videoId === videoId);
         if (meta) {
           setVideoTitle(meta.songTitle);
           setArtistName(meta.artistName);

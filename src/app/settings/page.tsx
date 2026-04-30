@@ -926,8 +926,8 @@ function DictionarySyncCard() {
     if (r.ok) {
       setStatusMsg({ kind: 'ok', text: `✅ 上傳成功（${dictStore.entries.length} 字）` });
       refresh();
-    } else if (error) {
-      setStatusMsg({ kind: 'err', text: error });
+    } else {
+      setStatusMsg({ kind: 'err', text: r.error ?? '上傳失敗，請稍後再試' });
     }
   };
 
@@ -935,7 +935,7 @@ function DictionarySyncCard() {
     setStatusMsg(null);
     const r = await download('merge');
     if (r.ok) setStatusMsg({ kind: 'ok', text: `✅ 已合併 ${r.processed ?? 0} 筆雲端條目（保留本地新增）` });
-    else if (error) setStatusMsg({ kind: 'err', text: error });
+    else setStatusMsg({ kind: 'err', text: r.error ?? '下載失敗，請稍後再試' });
   };
 
   const onDownloadReplace = async () => {
@@ -943,7 +943,7 @@ function DictionarySyncCard() {
     setStatusMsg(null);
     const r = await download('replace');
     if (r.ok) setStatusMsg({ kind: 'ok', text: `✅ 已用雲端覆蓋本地（共 ${r.processed ?? 0} 字）` });
-    else if (error) setStatusMsg({ kind: 'err', text: error });
+    else setStatusMsg({ kind: 'err', text: r.error ?? '下載失敗，請稍後再試' });
   };
 
   const fmtDate = (ms: number | null) => {
