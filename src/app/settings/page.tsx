@@ -94,9 +94,12 @@ export default function SettingsPage() {
   const [uploadStatus, setUploadStatus] = useState<
     { state: 'idle' } |
     { state: 'loading' } |
-    { state: 'success'; videoId: string; count: number } |
+    { state: 'success'; videoId: string; count: number; overwritten?: boolean } |
     { state: 'error'; message: string }
   >({ state: 'idle' });
+  const [adminToken, setAdminToken]         = useState('');
+  const [showAdminToken, setShowAdminToken] = useState(false);
+  const [forceOverwrite, setForceOverwrite] = useState(false);
 
   const handleSrtFile = (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
@@ -111,16 +114,22 @@ export default function SettingsPage() {
   const handleUpload = async () => {
     setUploadStatus({ state: 'loading' });
     try {
+      const body: Record<string, unknown> = { videoUrl: uploadUrl, srtContent: uploadSrt };
+      if (adminToken.trim()) {
+        body.adminToken    = adminToken.trim();
+        body.forceOverwrite = forceOverwrite;
+      }
       const res = await fetch('/api/upload-subtitles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoUrl: uploadUrl, srtContent: uploadSrt }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setUploadStatus({ state: 'success', videoId: data.videoId, count: data.segmentCount });
+        setUploadStatus({ state: 'success', videoId: data.videoId, count: data.segmentCount, overwritten: data.overwritten });
         setUploadUrl('');
         setUploadSrt('');
+        setForceOverwrite(false);
       } else {
         setUploadStatus({ state: 'error', message: data.error ?? '上傳失敗' });
       }
@@ -573,12 +582,48 @@ export default function SettingsPage() {
                 />
               </div>
 
+              {/* 管理員模式 */}
+              <div className="space-y-2 pt-1 border-t border-dashed border-muted-foreground/20">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1">
+                    <Key size={10} /> 管理員密碼
+                  </Label>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => setShowAdminToken(v => !v)}
+                    type="button"
+                  >
+                    {showAdminToken ? <EyeOff size={11} /> : <Eye size={11} />}
+                  </Button>
+                </div>
+                <Input
+                  type={showAdminToken ? 'text' : 'password'}
+                  placeholder="留空為一般上傳（已有快取時拒絕）"
+                  value={adminToken}
+                  onChange={(e) => { setAdminToken(e.target.value); if (!e.target.value) setForceOverwrite(false); }}
+                  className="rounded-xl bg-background border text-xs h-9 font-mono"
+                />
+                {adminToken.trim() && (
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={forceOverwrite}
+                      onChange={(e) => setForceOverwrite(e.target.checked)}
+                    />
+                    <span className="text-[10px] font-bold text-destructive">強制覆寫現有快取（包含 youtube-official）</span>
+                  </label>
+                )}
+              </div>
+
               {/* 狀態提示 */}
               {uploadStatus.state === 'success' && (
                 <div className="p-3 rounded-xl bg-green-500/10 border border-green-200 text-[10px] text-green-700 flex items-start gap-2">
                   <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold">上傳成功</p>
+                    <p className="font-bold">{uploadStatus.overwritten ? '強制覆寫成功' : '上傳成功'}</p>
                     <p className="text-green-600 mt-0.5">
                       videoId: <span className="font-mono">{uploadStatus.videoId}</span> — 共 {uploadStatus.count} 段
                     </p>

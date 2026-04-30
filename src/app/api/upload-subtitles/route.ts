@@ -5,11 +5,13 @@
  * 下次其他使用者分析同一支影片時會直接命中快取，跳過所有抓取管線。
  *
  * Request body:
- *   { videoUrl: string, srtContent: string }
+ *   { videoUrl: string, srtContent: string, adminToken?: string, forceOverwrite?: boolean }
  *
  * Response:
- *   200 { ok: true, videoId, segmentCount }
+ *   200 { ok: true, videoId, segmentCount, overwritten? }
  *   400 { ok: false, error }      — 參數錯誤／URL 無效／SRT 無法解析
+ *   401 { ok: false, error }      — adminToken 錯誤（forceOverwrite 需要管理員權限）
+ *   409 { ok: false, error, alreadyCached, existingSource } — 已有快取且非管理員強制覆寫
  *   500 { ok: false, error }      — Firestore 未設定或寫入失敗
  */
 
@@ -21,7 +23,7 @@ const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天，與 youtube-actions.t
 
 export async function POST(req: Request) {
   try {
-    const { videoUrl, srtContent } = await req.json();
+    const { videoUrl, srtContent, adminToken, forceOverwrite } = await req.json();
 
     if (typeof videoUrl !== 'string' || typeof srtContent !== 'string') {
       return Response.json({ ok: false, error: '缺少 videoUrl 或 srtContent' }, { status: 400 });
@@ -50,13 +52,30 @@ export async function POST(req: Request) {
       );
     }
 
-    // ── 4. 檢查是否已有未過期快取（避免覆寫高品質來源）─────────────────────
+    // ── 4. 管理員身份驗證（強制覆寫模式）────────────────────────────────
+    const serverToken = process.env.ADMIN_TOKEN;
+    const isAdmin = !!(
+      forceOverwrite === true &&
+      serverToken &&
+      adminToken === serverToken
+    );
+
+    if (forceOverwrite === true && !isAdmin) {
+      return Response.json(
+        { ok: false, error: '管理員密碼錯誤，無法強制覆寫' },
+        { status: 401 }
+      );
+    }
+
+    // ── 5. 檢查是否已有未過期快取（非管理員時拒絕覆寫）─────────────────
     const ref  = db.collection('subtitles').doc(videoId);
     const snap = await ref.get();
+    let overwritten = false;
+
     if (snap.exists) {
       const data = snap.data() as { expiresAt?: number; source?: string } | undefined;
       const stillValid = !!data && (!data.expiresAt || Date.now() <= data.expiresAt);
-      if (stillValid) {
+      if (stillValid && !isAdmin) {
         return Response.json({
           ok: false,
           videoId,
@@ -65,24 +84,27 @@ export async function POST(req: Request) {
           error: `此影片雲端已有快取（來源：${data?.source ?? 'unknown'}），無需重複上傳`,
         }, { status: 409 });
       }
+      if (stillValid && isAdmin) {
+        overwritten = true;
+        console.log(`[SubtitleCache] 管理員強制覆寫: ${videoId} (原 ${data?.source ?? 'unknown'})`);
+      }
     }
 
-    // ── 5. 寫入 Firestore ────────────────────────────────────────────────
+    // ── 6. 寫入 Firestore ────────────────────────────────────────────────
     const now = Date.now();
-    const doc = {
+    await ref.set({
       videoId,
       segments,
       source: 'manual' as const,
       cachedAt: now,
       expiresAt: now + CACHE_TTL_MS,
-    };
-
-    await ref.set(doc);
+    });
 
     return Response.json({
       ok: true,
       videoId,
       segmentCount: segments.length,
+      overwritten,
     });
 
   } catch (e: any) {
