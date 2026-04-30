@@ -37,7 +37,7 @@ const shuffle = <T,>(array: T[]): T[] => {
 // 將使用者收藏的字典條目轉成練習用的 VocabularyWord 形狀
 // （以最早收藏的句子翻譯作為意義，category 顯示來源歌曲）
 function useEffectiveWords(): { words: VocabularyWord[]; fromDictionary: boolean } {
-  const { entries } = useDictionaryStore();
+  const { entries, hiddenPresets } = useDictionaryStore();
   return useMemo(() => {
     const dictWords: VocabularyWord[] = entries
       .filter(e => e.sources.length > 0 && e.sources[0].translation.trim())
@@ -47,10 +47,11 @@ function useEffectiveWords(): { words: VocabularyWord[]; fromDictionary: boolean
         translation: e.sources[0].translation,
         category:    e.sources[0].songTitle || '我的字典',
       }));
-    // 至少 6 個才能撐起記憶配對；不足則退回靜態詞庫
+    // 至少 6 個才能撐起記憶配對；不足則退回靜態詞庫（已排除使用者隱藏的預設詞）
     if (dictWords.length >= 6) return { words: dictWords, fromDictionary: true };
-    return { words: VocabularyData.words, fromDictionary: false };
-  }, [entries]);
+    const visiblePresets = VocabularyData.words.filter(w => !hiddenPresets.includes(w.word));
+    return { words: visiblePresets, fromDictionary: false };
+  }, [entries, hiddenPresets]);
 }
 
 // --- Echo Method View ---

@@ -5,33 +5,42 @@ import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDictionaryStore } from "@/store/use-app-store";
-import { 
-  Book, 
-  Search, 
-  Music, 
-  CheckCircle2, 
-  Circle, 
-  ChevronRight, 
-  PlayCircle, 
+import { VocabularyData } from "@/lib/constants/data";
+import {
+  Book,
+  Search,
+  Music,
+  CheckCircle2,
+  Circle,
+  ChevronRight,
+  PlayCircle,
   X,
   RotateCcw,
-  Star
+  Star,
+  Library,
+  Trash2,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { 
-  Dialog, 
-  DialogContent, 
+import {
+  Dialog,
+  DialogContent,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 
 type DictFilter = "全部" | "學習中" | "已熟練";
 
 export default function DictionaryPage() {
-  const { entries, removeEntry, toggleMastered } = useDictionaryStore();
+  const {
+    entries, removeEntry, toggleMastered,
+    hiddenPresets, togglePresetHidden, restoreAllPresets,
+  } = useDictionaryStore();
   const [filter, setFilter] = useState<DictFilter>("全部");
   const [searchText, setSearchText] = useState("");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [showReview, setShowReview] = useState(false);
+  const [showPresetManager, setShowPresetManager] = useState(false);
 
   const unmasteredCount = entries.filter(e => !e.mastered).length;
   const masteredCount = entries.filter(e => e.mastered).length;
@@ -51,9 +60,18 @@ export default function DictionaryPage() {
 
   return (
     <div className="space-y-6 px-6 py-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-2">
         <h1 className="text-3xl font-headline font-bold text-primary">我的字典</h1>
-        {unmasteredCount > 0 && <Button onClick={() => setShowReview(true)} className="rounded-full bg-indigo-600 hover:bg-indigo-700 shadow-md gap-2"><RotateCcw size={16} /> 複習</Button>}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowPresetManager(true)} className="rounded-full gap-1.5 h-9">
+            <Library size={14} /> 預設詞庫
+          </Button>
+          {unmasteredCount > 0 && (
+            <Button onClick={() => setShowReview(true)} className="rounded-full bg-indigo-600 hover:bg-indigo-700 shadow-md gap-2 h-9">
+              <RotateCcw size={16} /> 複習
+            </Button>
+          )}
+        </div>
       </header>
       <div className="grid grid-cols-3 gap-3">
         <StatBadge label="收藏" count={entries.length} color="text-indigo-600" bgColor="bg-indigo-50" />
@@ -79,7 +97,135 @@ export default function DictionaryPage() {
         <DialogContent className="rounded-3xl max-w-sm">{selectedEntry && (<div className="space-y-6 py-4"><div className="text-center space-y-2 p-6 bg-indigo-50 rounded-2xl"><h2 className="text-5xl font-bold text-primary">{selectedEntry.word}</h2><div className="flex items-center justify-center gap-4 text-lg"><span className="text-indigo-600 font-medium">{selectedEntry.reading}</span><span className="text-orange-500 font-medium">{selectedEntry.romaji}</span></div></div><div className="space-y-4"><h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2"><PlayCircle size={14} /> 出處歌曲 ({selectedEntry.sources.length} 首)</h3><div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">{Object.values(selectedEntry.sources.reduce((acc, src) => { if (!acc[src.videoId]) acc[src.videoId] = { title: src.songTitle, pairs: [] }; acc[src.videoId].pairs.push({ jp: src.sentence, zh: src.translation }); return acc; }, {} as Record<string, { title: string, pairs: { jp: string, zh: string }[] }>)).map((group, idx) => (<div key={idx} className="p-3 bg-muted/30 rounded-xl space-y-2 border border-border/50"><p className="text-[10px] font-bold text-indigo-600 truncate">{group.title}</p>{group.pairs.map((p, pIdx) => (<div key={pIdx} className="space-y-0.5"><p className="text-xs font-medium">{p.jp}</p><p className="text-[10px] text-muted-foreground italic">{p.zh}</p></div>))}</div>))}</div></div><Button variant="destructive" size="sm" className="w-full rounded-xl" onClick={() => { removeEntry(selectedEntry.id); setSelectedEntryId(null); }}>從字典中刪除</Button></div>)}</DialogContent>
       </Dialog>
       <ReviewDialog open={showReview} onOpenChange={setShowReview} list={entries.filter(e => !e.mastered)} />
+      <PresetManagerDialog
+        open={showPresetManager}
+        onOpenChange={setShowPresetManager}
+        hiddenPresets={hiddenPresets}
+        toggleHidden={togglePresetHidden}
+        restoreAll={restoreAllPresets}
+      />
     </div>
+  );
+}
+
+function PresetManagerDialog({
+  open, onOpenChange, hiddenPresets, toggleHidden, restoreAll,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  hiddenPresets: string[];
+  toggleHidden: (word: string) => void;
+  restoreAll: () => void;
+}) {
+  const [searchQ, setSearchQ] = useState("");
+  const [showHiddenOnly, setShowHiddenOnly] = useState(false);
+
+  const grouped = useMemo(() => {
+    const filtered = VocabularyData.words.filter(w => {
+      if (showHiddenOnly && !hiddenPresets.includes(w.word)) return false;
+      if (!searchQ) return true;
+      const q = searchQ.toLowerCase();
+      return w.word.toLowerCase().includes(q)
+          || w.furigana.toLowerCase().includes(q)
+          || w.translation.toLowerCase().includes(q);
+    });
+    const out: Record<string, typeof VocabularyData.words> = {};
+    filtered.forEach(w => { (out[w.category] ??= []).push(w); });
+    return out;
+  }, [searchQ, showHiddenOnly, hiddenPresets]);
+
+  const visibleCount = VocabularyData.words.length - hiddenPresets.length;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="rounded-3xl max-w-md max-h-[85vh] flex flex-col p-0 overflow-hidden">
+        <div className="px-6 pt-6 pb-3 border-b space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-primary flex items-center gap-2">
+              <Library size={20} /> 預設詞庫管理
+            </h2>
+            <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="rounded-full h-8 w-8">
+              <X size={16} />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            隱藏的單字不會出現在練習與測驗。目前 {visibleCount} 個可用 / 已隱藏 {hiddenPresets.length} 個。
+          </p>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+            <Input
+              placeholder="搜尋單字、假名、翻譯..."
+              className="pl-9 h-9 rounded-xl text-sm"
+              value={searchQ}
+              onChange={e => setSearchQ(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant={showHiddenOnly ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowHiddenOnly(v => !v)}
+              className="rounded-full text-xs h-7 gap-1.5"
+            >
+              {showHiddenOnly ? <EyeOff size={12} /> : <Eye size={12} />}
+              {showHiddenOnly ? "只看已隱藏" : "顯示全部"}
+            </Button>
+            {hiddenPresets.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={restoreAll} className="text-xs h-7 text-orange-600 hover:text-orange-700">
+                <RotateCcw size={12} className="mr-1" /> 還原全部
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-3 space-y-4">
+          {Object.entries(grouped).length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-12">沒有符合的單字</p>
+          ) : (
+            Object.entries(grouped).map(([cat, words]) => (
+              <div key={cat} className="space-y-2">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest sticky top-0 bg-background py-1">
+                  {cat}
+                </h3>
+                <div className="space-y-1.5">
+                  {words.map(w => {
+                    const hidden = hiddenPresets.includes(w.word);
+                    return (
+                      <div
+                        key={w.word}
+                        className={cn(
+                          "flex items-center gap-3 p-2.5 rounded-xl border transition-all",
+                          hidden ? "bg-muted/30 border-border opacity-50" : "bg-card border-border/60",
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-base font-bold">{w.word}</span>
+                            <span className="text-[11px] text-indigo-600 font-medium">{w.furigana}</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground truncate">{w.translation}</p>
+                        </div>
+                        <button
+                          onClick={() => toggleHidden(w.word)}
+                          className={cn(
+                            "p-2 rounded-full transition-colors shrink-0",
+                            hidden
+                              ? "bg-orange-100 text-orange-600 hover:bg-orange-200"
+                              : "bg-destructive/10 text-destructive hover:bg-destructive/20",
+                          )}
+                          aria-label={hidden ? "還原" : "隱藏"}
+                        >
+                          {hidden ? <RotateCcw size={14} /> : <Trash2 size={14} />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

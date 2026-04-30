@@ -118,6 +118,7 @@ export const useSettingsStore = create<SettingsState>()(
 // --- Dictionary Store ---
 interface DictionaryState {
   entries: DictEntry[];
+  hiddenPresets: string[];
   addEntry: (word: string, reading: string, videoId: string, songTitle: string, sentence: string, translation: string) => void;
   addAllFromSegment: (segment: Segment, videoId: string, songTitle: string) => void;
   removeEntry: (id: string) => void;
@@ -125,12 +126,16 @@ interface DictionaryState {
   toggleMastered: (id: string) => void;
   contains: (word: string, reading: string) => boolean;
   countForSong: (videoId: string) => number;
+  togglePresetHidden: (word: string) => void;
+  restoreAllPresets: () => void;
+  isPresetHidden: (word: string) => boolean;
 }
 
 export const useDictionaryStore = create<DictionaryState>()(
   persist(
     (set, get) => ({
       entries: [],
+      hiddenPresets: [],
       addEntry: (word, reading, videoId, songTitle, sentence, translation) => {
         if (!word || !reading) return;
         const { entries } = get();
@@ -174,6 +179,13 @@ export const useDictionaryStore = create<DictionaryState>()(
       })),
       contains: (word, reading) => get().entries.some(e => e.word === word && e.reading === reading),
       countForSong: (videoId) => get().entries.filter(e => e.sources.some(s => s.videoId === videoId)).length,
+      togglePresetHidden: (word) => set(state => ({
+        hiddenPresets: state.hiddenPresets.includes(word)
+          ? state.hiddenPresets.filter(w => w !== word)
+          : [...state.hiddenPresets, word],
+      })),
+      restoreAllPresets: () => set({ hiddenPresets: [] }),
+      isPresetHidden: (word) => get().hiddenPresets.includes(word),
     }),
     { name: 'nihongo-dictionary-storage-v3' }
   )

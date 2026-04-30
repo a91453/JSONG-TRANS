@@ -62,8 +62,8 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isAnswered,     setIsAnswered]     = useState(false);
 
-  const { progress, updateHighScore } = useProgressStore();
-  const { entries }                   = useDictionaryStore();
+  const { progress, updateHighScore }  = useProgressStore();
+  const { entries, hiddenPresets }     = useDictionaryStore();
 
   // 將使用者字典轉成題卡格式（句子翻譯作為「答案」測試使用者對歌詞含義的記憶）
   const dictCards = useMemo<QuizCard[]>(() => entries
@@ -77,12 +77,15 @@ export function QuizEngine({ onBack }: QuizEngineProps) {
     })),
   [entries]);
 
-  const staticCards = useMemo<QuizCard[]>(() => VocabularyData.words.map(w => ({
-    word:        w.word,
-    furigana:    w.furigana,
-    translation: w.translation,
-    category:    w.category,
-  })), []);
+  const staticCards = useMemo<QuizCard[]>(() => VocabularyData.words
+    .filter(w => !hiddenPresets.includes(w.word))
+    .map(w => ({
+      word:        w.word,
+      furigana:    w.furigana,
+      translation: w.translation,
+      category:    w.category,
+    })),
+  [hiddenPresets]);
 
   const dictReady = dictCards.length >= MIN_FOR_QUIZ;
   const [mode, setMode] = useState<QuizMode>(dictReady ? 'dictionary' : 'comprehensive');
