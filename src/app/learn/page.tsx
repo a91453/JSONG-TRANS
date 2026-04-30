@@ -55,7 +55,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { convertToRomaji } from "@/lib/romaji-utils"
 import { explainSentenceAction, type ExplainOutput } from "@/ai/flows/explain-sentence"
-import { annotateSegmentsAction, annotateFuriganaOnlyAction } from "@/ai/flows/analyze-video"
+import { annotateSegmentsAction, annotateFuriganaOnlyAction, saveSubtitleCacheAction } from "@/ai/flows/analyze-video"
 import { speak } from "@/lib/speech"
 import { generateSRT, parseSRT, parseTXT } from "@/lib/subtitle-utils"
 import { useHistoryStore } from "@/store/use-app-store"
@@ -331,6 +331,10 @@ function LearnContent() {
       const videoId     = v.length === 11 ? v : `file-${Date.now()}`
       const finalResult = { ...result, videoId }
       saveResult(finalResult, videoTitle || "匯入字幕", artistName || "自定義")
+      // 若是真實 YouTube ID，同時寫入 Firestore 供其他使用者快取命中
+      if (videoId.length === 11) {
+        saveSubtitleCacheAction(finalResult).catch(() => {/* Firestore 未配置時靜默 */})
+      }
       toast({ title: "匯入完成", description: `${result.segments.length} 段字幕已就緒。` })
       if (videoId !== v) {
         router.push(`/learn?v=${videoId}`)

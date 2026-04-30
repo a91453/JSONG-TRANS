@@ -15,6 +15,7 @@
 import { createAi, z } from '@/ai/genkit';
 import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { groqGenerate } from '@/lib/groq-generate';
+import { db } from '@/lib/firebase-admin';
 
 const FuriganaItemSchema = z.object({
   word: z.string().describe('包含漢字的完整語義單元（含活用語尾，如：去られ、笑った）'),
@@ -381,4 +382,31 @@ ${segmentLines}
     if (msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED')) throw new Error('API 配額已滿，請稍候 30 秒再試。');
     throw new Error(msg || 'AI 振假名標注失敗，請檢查 API Key 或稍後再試。');
   }
+}
+
+// ── 手動匯入後寫入 Firestore 快取（僅適用於真實 YouTube 11 位 ID）──────────
+
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天，與 youtube-actions.ts 一致
+
+export async function saveSubtitleCacheAction(result: {
+  videoId:  string;
+  duration: number;
+  segments: Array<{
+    id: string; start: number; end: number;
+    japanese: string; translation: string;
+    furigana: Array<{ word: string; reading: string }>;
+  }>;
+  source: string;
+}): Promise<void> {
+  if (!db) return; // Firestore 未配置，靜默跳過
+  if (result.videoId.length !== 11) return; // 只快取真實 YouTube ID
+  const now = Date.now();
+  await db.collection('subtitles').doc(result.videoId).set({
+    videoId:   result.videoId,
+    segments:  result.segments,
+    source:    'manual' as const,
+    cachedAt:  now,
+    expiresAt: now + CACHE_TTL_MS,
+  });
+  console.log(`[SubtitleCache] 手動匯入已快取: ${result.videoId} (${result.segments.length} 段)`);
 }
