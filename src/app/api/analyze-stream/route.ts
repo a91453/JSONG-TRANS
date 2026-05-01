@@ -35,6 +35,17 @@ function sseChunk(event: string, data: unknown): Uint8Array {
   );
 }
 
+function countKanji(text: string): number {
+  return (text.match(/[一-鿿㐀-䶿々]/g) ?? []).length;
+}
+
+function furiganaCoverage(seg: RawSeg): number {
+  const total = countKanji(seg.text ?? '');
+  if (total === 0) return 1;
+  const covered = (seg.furigana ?? []).reduce((sum, f) => sum + countKanji(f.word), 0);
+  return Math.min(covered / total, 1);
+}
+
 export async function POST(req: Request) {
   const {
     videoId,
@@ -138,10 +149,16 @@ export async function POST(req: Request) {
         } else {
           // 若來源已預先標注振假名（例如 Cloud Run 轉錄），只需 AI 翻譯
           // 取前 5 段非空段落投票，多數有 furigana 才視為預先標注（避免空白 intro 誤判）
-          const sampleSegs = rawSegments.filter(s => s.text?.trim()).slice(0, 5);
-          const hasPreAnnotatedFurigana =
-            sampleSegs.length > 0 &&
-            sampleSegs.filter(s => Array.isArray(s.furigana) && s.furigana.length > 0).length > sampleSegs.length / 2;
+          const sampleSegs        = rawSegments.filter(s => s.text?.trim()).slice(0, 5);
+          const segsWithFurigana  = sampleSegs.filter(s => Array.isArray(s.furigana) && s.furigana.length > 0);
+          const hasMajorityFurigana =
+            sampleSegs.length > 0 && segsWithFurigana.length > sampleSegs.length / 2;
+          // Also require ≥60% kanji coverage — Cloud Run sometimes provides sparse furigana
+          // that passes the majority check but leaves most kanji unannotated.
+          const avgCoverage = hasMajorityFurigana && segsWithFurigana.length > 0
+            ? segsWithFurigana.reduce((sum, s) => sum + furiganaCoverage(s), 0) / segsWithFurigana.length
+            : 0;
+          const hasPreAnnotatedFurigana = hasMajorityFurigana && avgCoverage >= 0.6;
 
           const batches      = chunk(rawSegments, BATCH_SIZE);
           const totalBatches = batches.length;
