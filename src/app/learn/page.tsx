@@ -391,7 +391,7 @@ function LearnContent() {
 
   if (errorMessage) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen space-y-6 p-8 text-center bg-background">
+      <div className="flex flex-col items-center justify-center h-full space-y-6 p-8 text-center bg-background">
         <AlertTriangle size={60} className="text-destructive" />
         <div className="space-y-2">
           <h2 className="text-xl font-bold">解析發生錯誤</h2>
@@ -408,7 +408,7 @@ function LearnContent() {
   // Initial loading: no segments yet — show full-screen spinner
   if (isLoading && segments.length === 0) {
     return (
-      <div className="flex flex-col h-screen bg-background overflow-hidden">
+      <div className="flex flex-col h-full bg-background overflow-hidden">
         <div className="w-full bg-black aspect-video flex items-center justify-center border-b">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
@@ -443,11 +443,11 @@ function LearnContent() {
   )
 
   return (
-    <div className="flex flex-col h-[calc(100vh-80px)] bg-background text-foreground overflow-hidden">
+    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left panel (mobile: top section) ──────────────────────── */}
-        <div className="md:w-[380px] lg:w-[420px] shrink-0 flex flex-col md:border-r overflow-hidden">
+        <div className="md:w-[400px] lg:w-[520px] xl:w-[640px] shrink-0 flex flex-col md:border-r overflow-hidden">
           <div className="w-full bg-black aspect-video max-h-[28vh] md:max-h-none relative z-10">
             {v && v.length === 11 ? (
               <YouTube
@@ -908,8 +908,16 @@ function LearnContent() {
 
 export default function LearnPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-background"><Loader2 className="animate-spin text-primary" /></div>}>
-      <LearnContent />
-    </Suspense>
+    // Escape the root layout's max-w-4xl constraint so the page is truly full-width on desktop.
+    // Navigation is fixed bottom-0 z-50 h-16 (64 px); bottom-16 keeps us clear of it.
+    <div className="fixed inset-x-0 top-0 bottom-16 z-10 bg-background overflow-hidden">
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-full bg-background">
+          <Loader2 className="animate-spin text-primary" />
+        </div>
+      }>
+        <LearnContent />
+      </Suspense>
+    </div>
   )
 }
