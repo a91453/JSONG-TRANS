@@ -422,11 +422,13 @@ export async function saveSubtitleCacheAction(result: {
     }
 
     // 轉成 RawSegment 形狀供 analyze-stream pipeline 重複使用
+    // 同時保存 translation，讓其他使用者完整命中快取、跳過所有 AI 呼叫
     const rawSegments = result.segments.map(s => ({
-      start:    s.start,
-      end:      s.end,
-      text:     s.japanese,
-      furigana: s.furigana,
+      start:       s.start,
+      end:         s.end,
+      text:        s.japanese,
+      furigana:    s.furigana,
+      translation: s.translation,
     }));
 
     const now = Date.now();

@@ -160,56 +160,81 @@ export async function POST(req: Request) {
             : 0;
           const hasPreAnnotatedFurigana = hasMajorityFurigana && avgCoverage >= 0.6;
 
-          const batches      = chunk(rawSegments, BATCH_SIZE);
-          const totalBatches = batches.length;
-          const taskLabel    = hasPreAnnotatedFurigana ? '翻譯' : '標注';
-          if (hasPreAnnotatedFurigana) {
-            send('stage', { text: '振假名已預先標注，僅需翻譯 ⚡' });
-          }
-          send('stage', { text: `並行${taskLabel} ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
+          // 若振假名＋翻譯都已完整快取（手動匯入後 AI 標注結果已回存），直接流式輸出，跳過所有 AI 呼叫
+          const segsWithTranslation = rawSegments.filter(s => s.text?.trim() && typeof s.translation === 'string' && s.translation.length > 0);
+          const hasPreAnnotatedTranslation =
+            hasPreAnnotatedFurigana &&
+            rawSegments.length > 0 &&
+            segsWithTranslation.length >= rawSegments.filter(s => s.text?.trim()).length;
 
-          let completed   = 0;
-          let failed      = 0;
-          let nextIdx     = 0;
-          let fatalError: Error | null = null;
+          if (hasPreAnnotatedTranslation) {
+            send('stage', { text: '振假名與翻譯均已快取，直接使用雲端資料 ⚡' });
+            const batches      = chunk(rawSegments, BATCH_SIZE);
+            const totalBatches = batches.length;
+            batches.forEach((batch, i) => {
+              const withIds = batch.map(s => ({
+                id:          crypto.randomUUID(),
+                start:       s.start,
+                end:         s.end,
+                japanese:    s.text,
+                translation: s.translation ?? '',
+                furigana:    s.furigana ?? [],
+              }));
+              send('batch', { segments: withIds, batchIndex: i, totalBatches });
+              allAnnotated.push(...withIds);
+            });
+          } else {
+            const batches      = chunk(rawSegments, BATCH_SIZE);
+            const totalBatches = batches.length;
+            const taskLabel    = hasPreAnnotatedFurigana ? '翻譯' : '標注';
+            if (hasPreAnnotatedFurigana) {
+              send('stage', { text: '振假名已預先標注，僅需翻譯 ⚡' });
+            }
+            send('stage', { text: `並行${taskLabel} ${totalBatches} 批（同時 ${Math.min(CONCURRENCY, totalBatches)} 批）…` });
 
-          async function worker() {
-            while (nextIdx < batches.length) {
-              if (fatalError) break;
-              const i = nextIdx++;
-              try {
-                const runner = hasPreAnnotatedFurigana ? translateBatch : annotateBatch;
-                const annotated = await runner(
-                  batches[i], titleForPrompt, sourceLabel, provider, apiKey, model
-                );
-                const withIds = annotated.map(s => ({ ...s, id: crypto.randomUUID() }));
-                send('batch', { segments: withIds, batchIndex: i, totalBatches });
-                allAnnotated.push(...withIds);
-                send('stage', { text: `已完成 ${++completed} / ${totalBatches} 批` });
-              } catch (err: any) {
-                const msg: string = err?.message || '';
-                // 地區封鎖或認證錯誤無法靠重試解決，立刻中止所有 worker
-                if (
-                  msg.includes('location is not supported') ||
-                  msg.includes('INVALID_ARGUMENT') ||
-                  msg.includes('PERMISSION_DENIED') ||
-                  msg.includes('API_KEY_INVALID')
-                ) {
-                  fatalError = err;
-                  break;
+            let completed   = 0;
+            let failed      = 0;
+            let nextIdx     = 0;
+            let fatalError: Error | null = null;
+
+            async function worker() {
+              while (nextIdx < batches.length) {
+                if (fatalError) break;
+                const i = nextIdx++;
+                try {
+                  const runner = hasPreAnnotatedFurigana ? translateBatch : annotateBatch;
+                  const annotated = await runner(
+                    batches[i], titleForPrompt, sourceLabel, provider, apiKey, model
+                  );
+                  const withIds = annotated.map(s => ({ ...s, id: crypto.randomUUID() }));
+                  send('batch', { segments: withIds, batchIndex: i, totalBatches });
+                  allAnnotated.push(...withIds);
+                  send('stage', { text: `已完成 ${++completed} / ${totalBatches} 批` });
+                } catch (err: any) {
+                  const msg: string = err?.message || '';
+                  // 地區封鎖或認證錯誤無法靠重試解決，立刻中止所有 worker
+                  if (
+                    msg.includes('location is not supported') ||
+                    msg.includes('INVALID_ARGUMENT') ||
+                    msg.includes('PERMISSION_DENIED') ||
+                    msg.includes('API_KEY_INVALID')
+                  ) {
+                    fatalError = err;
+                    break;
+                  }
+                  failed++;
+                  send('stage', { text: `第 ${i + 1} 批失敗：${msg || '未知錯誤'}` });
                 }
-                failed++;
-                send('stage', { text: `第 ${i + 1} 批失敗：${msg || '未知錯誤'}` });
               }
             }
-          }
 
-          await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
+            await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
 
-          if (fatalError) throw fatalError;
+            if (fatalError) throw fatalError;
 
-          if (allAnnotated.length === 0) {
-            throw new Error('所有批次標注均失敗，請檢查 API Key 或稍後再試。');
+            if (allAnnotated.length === 0) {
+              throw new Error('所有批次標注均失敗，請檢查 API Key 或稍後再試。');
+            }
           }
 
           allAnnotated.sort((a, b) => a.start - b.start);

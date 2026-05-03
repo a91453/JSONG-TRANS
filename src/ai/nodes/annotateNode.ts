@@ -33,6 +33,8 @@ export type RawSeg     = {
   text:  string;
   /** 預標注振假名（如 Cloud Run 已提供）；存在時可走 translateBatch 僅翻譯路徑 */
   furigana?: z.infer<typeof FuriganaItemSchema>[];
+  /** 預先完成的中文翻譯（快取命中時可跳過所有 AI 呼叫）*/
+  translation?: string;
 };
 
 // ── 工具 ──────────────────────────────────────────────────────────────────
