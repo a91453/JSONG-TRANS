@@ -107,7 +107,7 @@ function LearnContent() {
   const userScrolledAtRef   = useRef<number>(0)
   const lastAutoScrollAtRef = useRef<number>(0)
 
-  /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 3s after */
+  /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 1.5s after */
   useEffect(() => {
     const c = scrollContainerRef.current;
     if (!c) return;
@@ -118,7 +118,9 @@ function LearnContent() {
       c.removeEventListener('wheel',     mark);
       c.removeEventListener('touchmove', mark);
     };
-  }, [response]);
+    // also fire when segments first appear so the container is already mounted
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [response, segments.length > 0 ? 1 : 0]);
 
   /**
    * Scroll active segment into view:
@@ -131,8 +133,8 @@ function LearnContent() {
     if (!container) return;
     const el = document.getElementById(`segment-${segmentId}`);
     if (!el) return;
-    // Respect manual scroll cooldown
-    if (Date.now() - userScrolledAtRef.current < 3000) return;
+    // Respect manual scroll cooldown (1.5 s)
+    if (Date.now() - userScrolledAtRef.current < 1500) return;
     // Prevent double-scroll while smooth animation is still running
     if (Date.now() - lastAutoScrollAtRef.current < 700) return;
     // Use getBoundingClientRect for position relative to container (offsetTop is relative to offsetParent, which may not be the scroll container)
@@ -143,10 +145,12 @@ function LearnContent() {
     const cTop    = container.scrollTop;
     // Element's position from the top of the container's scrollable content
     const eTop    = eRect.top - cRect.top + cTop;
-    // Safe zone: top 20% to bottom 65% — within this range, don't scroll
-    const safeTop    = cTop + cHeight * 0.20;
-    const safeBottom = cTop + cHeight * 0.65;
-    if (eTop >= safeTop && eTop + eHeight <= safeBottom) return;
+    // Safe zone: top 15% to bottom 70% — only check the element's TOP edge.
+    // Checking the bottom edge (`eTop + eHeight`) would make tall wordcard segments
+    // scroll constantly since they rarely fit entirely within the zone.
+    const safeTop    = cTop + cHeight * 0.15;
+    const safeBottom = cTop + cHeight * 0.70;
+    if (eTop >= safeTop && eTop <= safeBottom) return;
     // Target: active segment top sits at 28% from container top
     lastAutoScrollAtRef.current = Date.now();
     container.scrollTo({
