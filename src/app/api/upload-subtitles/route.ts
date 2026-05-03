@@ -18,6 +18,7 @@
 import { db } from '@/lib/firebase-admin';
 import { extractVideoID } from '@/lib/youtube';
 import { parseSRT } from '@/lib/subtitle-utils';
+import { verifyAdminToken } from '@/lib/admin-auth';
 
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天，與 youtube-actions.ts 一致
 
@@ -53,18 +54,13 @@ export async function POST(req: Request) {
     }
 
     // ── 4. 管理員身份驗證（強制覆寫模式）────────────────────────────────
-    const serverToken = process.env.ADMIN_TOKEN;
-    const isAdmin = !!(
-      forceOverwrite === true &&
-      serverToken &&
-      adminToken === serverToken
-    );
-
-    if (forceOverwrite === true && !isAdmin) {
-      return Response.json(
-        { ok: false, error: '管理員密碼錯誤，無法強制覆寫' },
-        { status: 401 }
-      );
+    let isAdmin = false;
+    if (forceOverwrite === true) {
+      const auth = verifyAdminToken(adminToken);
+      if (!auth.ok) {
+        return Response.json({ ok: false, error: auth.error }, { status: auth.status });
+      }
+      isAdmin = true;
     }
 
     // ── 5. 檢查是否已有未過期快取（非管理員時拒絕覆寫）─────────────────

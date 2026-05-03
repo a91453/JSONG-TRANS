@@ -108,6 +108,46 @@ export default function SettingsPage() {
   const [adminToken, setAdminToken]         = useState('');
   const [showAdminToken, setShowAdminToken] = useState(false);
   const [forceOverwrite, setForceOverwrite] = useState(false);
+  // 匯出 Firebase 字幕資料庫（管理員專用）
+  const [exportStatus, setExportStatus] = useState<
+    | { state: 'idle' }
+    | { state: 'loading' }
+    | { state: 'success'; count: number }
+    | { state: 'error';   message: string }
+  >({ state: 'idle' });
+
+  const handleExportSubtitles = async () => {
+    const token = adminToken.trim();
+    if (!token) {
+      setExportStatus({ state: 'error', message: '請先輸入管理員密碼' });
+      return;
+    }
+    setExportStatus({ state: 'loading' });
+    try {
+      const res = await fetch('/api/admin/export-subtitles', {
+        method:  'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { msg = JSON.parse(text).error ?? msg; } catch { /* not JSON */ }
+        throw new Error(msg);
+      }
+      // 解析一次取得段數，再用同一份 text 做下載（避免重複序列化）
+      const data = JSON.parse(text) as { count: number };
+      const blob = new Blob([text], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `nihongopath-subtitles-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportStatus({ state: 'success', count: data.count });
+    } catch (e: any) {
+      setExportStatus({ state: 'error', message: e?.message ?? '匯出失敗' });
+    }
+  };
 
   const handleSrtFile = (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
@@ -623,6 +663,33 @@ export default function SettingsPage() {
                     />
                     <span className="text-[10px] font-bold text-destructive">強制覆寫現有快取（包含 youtube-official）</span>
                   </label>
+                )}
+
+                {/* 一鍵匯出 Firebase 字幕資料庫（管理員專用） */}
+                {adminToken.trim() && (
+                  <div className="space-y-1.5 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleExportSubtitles}
+                      disabled={exportStatus.state === 'loading'}
+                      className="w-full rounded-xl text-xs font-bold gap-1.5 h-9"
+                    >
+                      {exportStatus.state === 'loading'
+                        ? <><Loader2 size={12} className="animate-spin" /> 匯出中…</>
+                        : <><Download size={12} /> 匯出 Firebase 字幕資料庫</>
+                      }
+                    </Button>
+                    {exportStatus.state === 'success' && (
+                      <p className="text-[10px] text-green-700 font-bold">
+                        ✅ 已下載 {exportStatus.count} 筆字幕
+                      </p>
+                    )}
+                    {exportStatus.state === 'error' && (
+                      <p className="text-[10px] text-destructive font-bold">
+                        ✗ {exportStatus.message}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 

@@ -120,7 +120,7 @@ function LearnContent() {
     };
     // also fire when segments first appear so the container is already mounted
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [response, segments.length > 0 ? 1 : 0]);
+  }, [response, streamedSegments.length > 0 ? 1 : 0]);
 
   /**
    * Scroll active segment into view:
