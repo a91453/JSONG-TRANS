@@ -15,6 +15,7 @@
 import { createAi, z } from '@/ai/genkit';
 import { getSmartSubtitles } from '@/lib/youtube-actions';
 import { groqGenerate } from '@/lib/groq-generate';
+import { db } from '@/lib/firebase-admin';
 
 const FuriganaItemSchema = z.object({
   word: z.string().describe('包含漢字的完整語義單元（含活用語尾，如：去られ、笑った）'),
@@ -380,5 +381,68 @@ ${segmentLines}
     if (is503(msg, code)) throw new Error('AI 服務目前流量過高，請稍候幾秒後重試。');
     if (msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED')) throw new Error('API 配額已滿，請稍候 30 秒再試。');
     throw new Error(msg || 'AI 振假名標注失敗，請檢查 API Key 或稍後再試。');
+  }
+}
+
+// ── 手動匯入後寫入 Firestore 快取（僅適用於真實 YouTube 11 位 ID）──────────
+
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 天，與 youtube-actions.ts 一致
+
+/**
+ * 將標注完成的段落寫入 Firestore 快取，供其他使用者重複利用。
+ *
+ * 安全規範：
+ *   1. videoId 必須為 11 位 YouTube ID（custom_/file- 一律拒絕）
+ *   2. 快取已存在且未過期 → 拒絕覆寫，避免低品質手動字幕蓋掉
+ *      youtube-official / external / whisper-groq 等更可靠的來源
+ *   3. 寫入時轉成 RawSegment 形狀（text 而非 japanese），與 readCache
+ *      及 analyze-stream pipeline 的期望一致
+ */
+export async function saveSubtitleCacheAction(result: {
+  videoId:  string;
+  segments: Array<{
+    id?: string; start: number; end: number;
+    japanese: string; translation: string;
+    furigana: Array<{ word: string; reading: string }>;
+  }>;
+}): Promise<{ ok: boolean; reason?: 'no-firestore' | 'not-youtube-id' | 'already-cached' | 'error' }> {
+  if (!db) return { ok: false, reason: 'no-firestore' };
+  if (result.videoId.length !== 11) return { ok: false, reason: 'not-youtube-id' };
+
+  try {
+    const ref  = db.collection('subtitles').doc(result.videoId);
+    const snap = await ref.get();
+    if (snap.exists) {
+      const data = snap.data() as { expiresAt?: number; source?: string } | undefined;
+      const stillValid = !!data && (!data.expiresAt || Date.now() <= data.expiresAt);
+      if (stillValid) {
+        console.log(`[SubtitleCache] 已有快取，跳過手動覆寫: ${result.videoId} (${data?.source ?? 'unknown'})`);
+        return { ok: false, reason: 'already-cached' };
+      }
+    }
+
+    // 轉成 RawSegment 形狀供 analyze-stream pipeline 重複使用
+    // 同時保存 translation，讓其他使用者完整命中快取、跳過所有 AI 呼叫
+    const rawSegments = result.segments.map(s => ({
+      start:       s.start,
+      end:         s.end,
+      text:        s.japanese,
+      furigana:    s.furigana,
+      translation: s.translation,
+    }));
+
+    const now = Date.now();
+    await ref.set({
+      videoId:   result.videoId,
+      segments:  rawSegments,
+      source:    'manual' as const,
+      cachedAt:  now,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+    console.log(`[SubtitleCache] 手動匯入已快取: ${result.videoId} (${rawSegments.length} 段)`);
+    return { ok: true };
+  } catch (e) {
+    console.warn('[SubtitleCache] 寫入失敗（不影響主流程）:', e);
+    return { ok: false, reason: 'error' };
   }
 }

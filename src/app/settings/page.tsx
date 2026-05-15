@@ -31,14 +31,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { 
-  Moon, 
-  Sun, 
-  Monitor, 
-  Type, 
-  Globe, 
-  Download, 
-  Trash2, 
+import {
+  Moon,
+  Sun,
+  Monitor,
+  Type,
+  Globe,
+  Download,
+  Trash2,
   Key,
   BrainCircuit,
   Eye,
@@ -57,7 +57,15 @@ import {
   FileText,
   Loader2,
   XCircle,
+  Cloud,
+  CloudUpload,
+  CloudDownload,
+  RefreshCw,
 } from "lucide-react";
+import { useDictionarySync } from "@/hooks/use-dictionary-sync";
+import { useGoogleAuth } from "@/hooks/use-google-auth";
+import { getFirebaseAuth } from "@/lib/firebase-client";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -94,9 +102,52 @@ export default function SettingsPage() {
   const [uploadStatus, setUploadStatus] = useState<
     { state: 'idle' } |
     { state: 'loading' } |
-    { state: 'success'; videoId: string; count: number } |
+    { state: 'success'; videoId: string; count: number; overwritten?: boolean } |
     { state: 'error'; message: string }
   >({ state: 'idle' });
+  const [adminToken, setAdminToken]         = useState('');
+  const [showAdminToken, setShowAdminToken] = useState(false);
+  const [forceOverwrite, setForceOverwrite] = useState(false);
+  // 匯出 Firebase 字幕資料庫（管理員專用）
+  const [exportStatus, setExportStatus] = useState<
+    | { state: 'idle' }
+    | { state: 'loading' }
+    | { state: 'success'; count: number }
+    | { state: 'error';   message: string }
+  >({ state: 'idle' });
+
+  const handleExportSubtitles = async () => {
+    const token = adminToken.trim();
+    if (!token) {
+      setExportStatus({ state: 'error', message: '請先輸入管理員密碼' });
+      return;
+    }
+    setExportStatus({ state: 'loading' });
+    try {
+      const res = await fetch('/api/admin/export-subtitles', {
+        method:  'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { msg = JSON.parse(text).error ?? msg; } catch { /* not JSON */ }
+        throw new Error(msg);
+      }
+      // 解析一次取得段數，再用同一份 text 做下載（避免重複序列化）
+      const data = JSON.parse(text) as { count: number };
+      const blob = new Blob([text], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `nihongopath-subtitles-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportStatus({ state: 'success', count: data.count });
+    } catch (e: any) {
+      setExportStatus({ state: 'error', message: e?.message ?? '匯出失敗' });
+    }
+  };
 
   const handleSrtFile = (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
@@ -111,16 +162,22 @@ export default function SettingsPage() {
   const handleUpload = async () => {
     setUploadStatus({ state: 'loading' });
     try {
+      const body: Record<string, unknown> = { videoUrl: uploadUrl, srtContent: uploadSrt };
+      if (adminToken.trim()) {
+        body.adminToken    = adminToken.trim();
+        body.forceOverwrite = forceOverwrite;
+      }
       const res = await fetch('/api/upload-subtitles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoUrl: uploadUrl, srtContent: uploadSrt }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setUploadStatus({ state: 'success', videoId: data.videoId, count: data.segmentCount });
+        setUploadStatus({ state: 'success', videoId: data.videoId, count: data.segmentCount, overwritten: data.overwritten });
         setUploadUrl('');
         setUploadSrt('');
+        setForceOverwrite(false);
       } else {
         setUploadStatus({ state: 'error', message: data.error ?? '上傳失敗' });
       }
@@ -573,12 +630,75 @@ export default function SettingsPage() {
                 />
               </div>
 
+              {/* 管理員模式 */}
+              <div className="space-y-2 pt-1 border-t border-dashed border-muted-foreground/20">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-bold text-muted-foreground flex items-center gap-1">
+                    <Key size={10} /> 管理員密碼
+                  </Label>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => setShowAdminToken(v => !v)}
+                    type="button"
+                  >
+                    {showAdminToken ? <EyeOff size={11} /> : <Eye size={11} />}
+                  </Button>
+                </div>
+                <Input
+                  type={showAdminToken ? 'text' : 'password'}
+                  placeholder="留空為一般上傳（已有快取時拒絕）"
+                  value={adminToken}
+                  onChange={(e) => { setAdminToken(e.target.value); if (!e.target.value) setForceOverwrite(false); }}
+                  className="rounded-xl bg-background border text-xs h-9 font-mono"
+                />
+                {adminToken.trim() && (
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={forceOverwrite}
+                      onChange={(e) => setForceOverwrite(e.target.checked)}
+                    />
+                    <span className="text-[10px] font-bold text-destructive">強制覆寫現有快取（包含 youtube-official）</span>
+                  </label>
+                )}
+
+                {/* 一鍵匯出 Firebase 字幕資料庫（管理員專用） */}
+                {adminToken.trim() && (
+                  <div className="space-y-1.5 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleExportSubtitles}
+                      disabled={exportStatus.state === 'loading'}
+                      className="w-full rounded-xl text-xs font-bold gap-1.5 h-9"
+                    >
+                      {exportStatus.state === 'loading'
+                        ? <><Loader2 size={12} className="animate-spin" /> 匯出中…</>
+                        : <><Download size={12} /> 匯出 Firebase 字幕資料庫</>
+                      }
+                    </Button>
+                    {exportStatus.state === 'success' && (
+                      <p className="text-[10px] text-green-700 font-bold">
+                        ✅ 已下載 {exportStatus.count} 筆字幕
+                      </p>
+                    )}
+                    {exportStatus.state === 'error' && (
+                      <p className="text-[10px] text-destructive font-bold">
+                        ✗ {exportStatus.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* 狀態提示 */}
               {uploadStatus.state === 'success' && (
                 <div className="p-3 rounded-xl bg-green-500/10 border border-green-200 text-[10px] text-green-700 flex items-start gap-2">
                   <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold">上傳成功</p>
+                    <p className="font-bold">{uploadStatus.overwritten ? '強制覆寫成功' : '上傳成功'}</p>
                     <p className="text-green-600 mt-0.5">
                       videoId: <span className="font-mono">{uploadStatus.videoId}</span> — 共 {uploadStatus.count} 段
                     </p>
@@ -642,6 +762,12 @@ export default function SettingsPage() {
           </Card>
 
           </>} {/* end showAdvanced */}
+        </section>
+
+        {/* ── 字典雲端同步（需 Google 登入）──────────────────────────── */}
+        <section className="space-y-3">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1">跨裝置同步</h2>
+          <DictionarySyncCard />
         </section>
 
         <section className="space-y-3">
@@ -819,5 +945,181 @@ export default function SettingsPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+// ── Dictionary 雲端同步卡片 ───────────────────────────────────────────────
+function DictionarySyncCard() {
+  const { busy, error, upload, download, fetchStatus } = useDictionarySync();
+  const { signIn, isSigningIn } = useGoogleAuth();
+  const dictStore = useDictionaryStore();
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [cloud, setCloud] = useState<{ hasCloud: boolean; updatedAt: number | null; entryCount: number | null } | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 初次掛載 + auth 變動 → 確認登入狀態並抓雲端狀態
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      setSignedIn(false);
+      return;
+    }
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      setSignedIn(!!user);
+      setUserEmail(user?.email ?? null);
+      if (user) {
+        const s = await fetchStatus();
+        setCloud(s);
+      } else {
+        setCloud(null);
+      }
+    });
+    return () => unsub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    const s = await fetchStatus();
+    setCloud(s);
+    setRefreshing(false);
+  };
+
+  const onUpload = async () => {
+    setStatusMsg(null);
+    const r = await upload();
+    if (r.ok) {
+      setStatusMsg({ kind: 'ok', text: `✅ 上傳成功（${dictStore.entries.length} 字）` });
+      refresh();
+    } else {
+      setStatusMsg({ kind: 'err', text: r.error ?? '上傳失敗，請稍後再試' });
+    }
+  };
+
+  const onDownloadMerge = async () => {
+    setStatusMsg(null);
+    const r = await download('merge');
+    if (r.ok) setStatusMsg({ kind: 'ok', text: `✅ 已合併 ${r.processed ?? 0} 筆雲端條目（保留本地新增）` });
+    else setStatusMsg({ kind: 'err', text: r.error ?? '下載失敗，請稍後再試' });
+  };
+
+  const onDownloadReplace = async () => {
+    if (!confirm('確定要用雲端資料覆蓋本地字典嗎？\n本地比雲端多出的條目會被刪除。')) return;
+    setStatusMsg(null);
+    const r = await download('replace');
+    if (r.ok) setStatusMsg({ kind: 'ok', text: `✅ 已用雲端覆蓋本地（共 ${r.processed ?? 0} 字）` });
+    else setStatusMsg({ kind: 'err', text: r.error ?? '下載失敗，請稍後再試' });
+  };
+
+  const fmtDate = (ms: number | null) => {
+    if (!ms) return '尚未上傳';
+    const d = new Date(ms);
+    return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <Card className="rounded-2xl border bg-muted/10">
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Cloud size={16} className="text-primary" />
+          <h3 className="text-xs font-bold uppercase tracking-widest">字典雲端同步</h3>
+        </div>
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          將本地字典同步到 Firestore，跨裝置共用同一份學習資料。資料以 Google 帳號隔離，只有你能存取。
+        </p>
+
+        {signedIn === false && (
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-300 text-[10px] text-amber-800 space-y-2">
+            <p className="font-bold">尚未登入 Google 帳號</p>
+            <p className="opacity-80">請先登入才能使用同步功能（同時需要 Firestore 已配置）。</p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isSigningIn}
+              onClick={() => signIn().catch(() => {})}
+              className="rounded-xl gap-2 mt-1"
+            >
+              {isSigningIn ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />}
+              使用 Google 登入
+            </Button>
+          </div>
+        )}
+
+        {signedIn && (
+          <>
+            {/* 帳號 + 狀態列 */}
+            <div className="space-y-2 p-3 rounded-xl bg-background/70 border">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase">帳號</p>
+                  <p className="text-xs font-mono truncate">{userEmail ?? '已登入'}</p>
+                </div>
+                <Button size="icon" variant="ghost" onClick={refresh} disabled={refreshing} className="h-7 w-7 rounded-full">
+                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t">
+                <div>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase">本地</p>
+                  <p className="text-sm font-bold">{dictStore.entries.length} 字</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase">雲端</p>
+                  <p className="text-sm font-bold">
+                    {cloud?.hasCloud ? `${cloud.entryCount ?? '?'} 字` : '尚未上傳'}
+                  </p>
+                  <p className="text-[9px] text-muted-foreground">{fmtDate(cloud?.updatedAt ?? null)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 同步操作按鈕 */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                onClick={onUpload}
+                disabled={busy || dictStore.entries.length === 0}
+                className="rounded-xl gap-2"
+              >
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+                上傳到雲端
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onDownloadMerge}
+                disabled={busy || !cloud?.hasCloud}
+                className="rounded-xl gap-2"
+              >
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+                下載並合併
+              </Button>
+            </div>
+
+            {cloud?.hasCloud && (
+              <button
+                onClick={onDownloadReplace}
+                disabled={busy}
+                className="w-full text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1"
+              >
+                ⚠️ 用雲端覆蓋本地（清除本地未同步的條目）
+              </button>
+            )}
+
+            {statusMsg && (
+              <div className={cn(
+                "p-3 rounded-xl text-[10px] flex items-start gap-2",
+                statusMsg.kind === 'ok'
+                  ? "bg-green-500/10 border border-green-200 text-green-700"
+                  : "bg-destructive/10 border border-destructive/20 text-destructive"
+              )}>
+                {statusMsg.kind === 'ok' ? <CheckCircle2 size={12} className="shrink-0 mt-0.5" /> : <XCircle size={12} className="shrink-0 mt-0.5" />}
+                <span>{statusMsg.text}</span>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

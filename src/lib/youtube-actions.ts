@@ -25,6 +25,8 @@ export interface RawSegment {
   text: string;
   /** 預標注振假名（由 Cloud Run 轉錄服務提供）；存在時可跳過 AI 標注步驟 */
   furigana?: FuriganaItem[];
+  /** 預先完成的中文翻譯（快取命中時可跳過所有 AI 呼叫）*/
+  translation?: string;
 }
 
 export interface SmartSubtitleResult {

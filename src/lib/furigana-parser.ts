@@ -13,7 +13,8 @@ export interface FuriganaItem {
 }
 
 // 漢字（含 々）OR 片假名 + 括號內平假名（允許長音 ー）
-const FURIGANA_RE = /([一-鿿㐀-䶿々゠-ヿ]+)\(([぀-ゟー]+)\)/g;
+// ゠-ヺ (U+30A0–U+30FA) + ー-ヿ (U+30FC–U+30FF) — 故意跳過 ・ (U+30FB) 避免中點被誤抓入 word
+const FURIGANA_RE = /([一-鿿㐀-䶿々゠-ヺー-ヿ]+)\(([぀-ゟー]+)\)/g;
 
 /** 從 inline 振假名字串解析出 {word, reading} 陣列。 */
 export function parseFuriganaString(s: string | null | undefined): FuriganaItem[] {

@@ -9,16 +9,19 @@ import {
   useFavoriteStore 
 } from "@/store/use-app-store";
 import { VocabularyData } from "@/lib/constants/data";
-import { 
-  Trophy, 
-  BookText, 
-  Type, 
-  Zap, 
-  Book, 
-  Award, 
+import {
+  Trophy,
+  BookText,
+  Type,
+  Zap,
+  Book,
+  Award,
   Star,
-  Activity
+  Activity,
+  ChevronRight,
+  TrendingUp,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { 
   BarChart, 
@@ -174,6 +177,21 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      <Link href="/stats" className="block">
+        <Card className="border-none shadow-md bg-card hover:shadow-lg transition-all active:scale-[0.99]">
+          <CardContent className="p-6 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-600">
+              <TrendingUp size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold">深度數據洞察</h3>
+              <p className="text-xs text-muted-foreground font-medium">每日趨勢、歌曲分布、熟練度比例</p>
+            </div>
+            <ChevronRight className="text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </Link>
     </div>
   );
 }

@@ -55,7 +55,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { convertToRomaji } from "@/lib/romaji-utils"
 import { explainSentenceAction, type ExplainOutput } from "@/ai/flows/explain-sentence"
-import { annotateSegmentsAction, annotateFuriganaOnlyAction } from "@/ai/flows/analyze-video"
+import { annotateSegmentsAction, annotateFuriganaOnlyAction, saveSubtitleCacheAction } from "@/ai/flows/analyze-video"
 import { speak } from "@/lib/speech"
 import { generateSRT, parseSRT, parseTXT } from "@/lib/subtitle-utils"
 import { useHistoryStore } from "@/store/use-app-store"
@@ -107,7 +107,7 @@ function LearnContent() {
   const userScrolledAtRef   = useRef<number>(0)
   const lastAutoScrollAtRef = useRef<number>(0)
 
-  /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 3s after */
+  /** Detect manual user scrolling (wheel / touch) — pause auto-scroll for 1.5s after */
   useEffect(() => {
     const c = scrollContainerRef.current;
     if (!c) return;
@@ -118,7 +118,9 @@ function LearnContent() {
       c.removeEventListener('wheel',     mark);
       c.removeEventListener('touchmove', mark);
     };
-  }, [response]);
+    // also fire when segments first appear so the container is already mounted
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [response, streamedSegments.length > 0 ? 1 : 0]);
 
   /**
    * Scroll active segment into view:
@@ -131,8 +133,8 @@ function LearnContent() {
     if (!container) return;
     const el = document.getElementById(`segment-${segmentId}`);
     if (!el) return;
-    // Respect manual scroll cooldown
-    if (Date.now() - userScrolledAtRef.current < 3000) return;
+    // Respect manual scroll cooldown (1.5 s)
+    if (Date.now() - userScrolledAtRef.current < 1500) return;
     // Prevent double-scroll while smooth animation is still running
     if (Date.now() - lastAutoScrollAtRef.current < 700) return;
     // Use getBoundingClientRect for position relative to container (offsetTop is relative to offsetParent, which may not be the scroll container)
@@ -143,10 +145,12 @@ function LearnContent() {
     const cTop    = container.scrollTop;
     // Element's position from the top of the container's scrollable content
     const eTop    = eRect.top - cRect.top + cTop;
-    // Safe zone: top 20% to bottom 65% — within this range, don't scroll
-    const safeTop    = cTop + cHeight * 0.20;
-    const safeBottom = cTop + cHeight * 0.65;
-    if (eTop >= safeTop && eTop + eHeight <= safeBottom) return;
+    // Safe zone: top 15% to bottom 70% — only check the element's TOP edge.
+    // Checking the bottom edge (`eTop + eHeight`) would make tall wordcard segments
+    // scroll constantly since they rarely fit entirely within the zone.
+    const safeTop    = cTop + cHeight * 0.15;
+    const safeBottom = cTop + cHeight * 0.70;
+    if (eTop >= safeTop && eTop <= safeBottom) return;
     // Target: active segment top sits at 28% from container top
     lastAutoScrollAtRef.current = Date.now();
     container.scrollTo({
@@ -298,6 +302,11 @@ function LearnContent() {
   const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "檔案過大", description: `上限 2 MB，目前 ${(file.size / 1024 / 1024).toFixed(1)} MB` })
+      if (e.target) e.target.value = ""
+      return
+    }
     const reader = new FileReader()
     reader.onload = (ev) => {
       setImportText(ev.target?.result as string)
@@ -309,6 +318,11 @@ function LearnContent() {
 
   const handleManualImport = async () => {
     if (!importText.trim()) return
+    // 防呆：textarea 貼上的內容也要限制大小
+    if (importText.length > 2 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "內容過大", description: "字幕文字超過 2 MB，請拆分後分次匯入" })
+      return
+    }
     const provider = settings.aiProvider
     const apiKey   = provider === 'google' ? settings.geminiApiKey : settings.groqApiKey
     if (!apiKey) {
@@ -331,6 +345,14 @@ function LearnContent() {
       const videoId     = v.length === 11 ? v : `file-${Date.now()}`
       const finalResult = { ...result, videoId }
       saveResult(finalResult, videoTitle || "匯入字幕", artistName || "自定義")
+      // 若是真實 YouTube ID，同時嘗試寫入 Firestore 供其他使用者快取命中
+      // （不覆寫既有快取；Firestore 未配置時靜默跳過）
+      if (videoId.length === 11) {
+        saveSubtitleCacheAction(finalResult).then(r => {
+          if (r?.ok) console.log('[Cloud] 已分享至雲端快取');
+          else if (r?.reason === 'already-cached') console.log('[Cloud] 雲端已有快取，未覆寫');
+        }).catch(() => {/* silent */})
+      }
       toast({ title: "匯入完成", description: `${result.segments.length} 段字幕已就緒。` })
       if (videoId !== v) {
         router.push(`/learn?v=${videoId}`)
@@ -369,7 +391,7 @@ function LearnContent() {
 
   if (errorMessage) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen space-y-6 p-8 text-center bg-background">
+      <div className="flex flex-col items-center justify-center h-full space-y-6 p-8 text-center bg-background">
         <AlertTriangle size={60} className="text-destructive" />
         <div className="space-y-2">
           <h2 className="text-xl font-bold">解析發生錯誤</h2>
@@ -386,7 +408,7 @@ function LearnContent() {
   // Initial loading: no segments yet — show full-screen spinner
   if (isLoading && segments.length === 0) {
     return (
-      <div className="flex flex-col h-screen bg-background overflow-hidden">
+      <div className="flex flex-col h-full bg-background overflow-hidden">
         <div className="w-full bg-black aspect-video flex items-center justify-center border-b">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
@@ -421,11 +443,11 @@ function LearnContent() {
   )
 
   return (
-    <div className="flex flex-col h-[calc(100vh-80px)] bg-background text-foreground overflow-hidden">
+    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left panel (mobile: top section) ──────────────────────── */}
-        <div className="md:w-[380px] lg:w-[420px] shrink-0 flex flex-col md:border-r overflow-hidden">
+        <div className="md:w-[400px] lg:w-[520px] xl:w-[640px] shrink-0 flex flex-col md:border-r overflow-hidden">
           <div className="w-full bg-black aspect-video max-h-[28vh] md:max-h-none relative z-10">
             {v && v.length === 11 ? (
               <YouTube
@@ -886,8 +908,16 @@ function LearnContent() {
 
 export default function LearnPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-background"><Loader2 className="animate-spin text-primary" /></div>}>
-      <LearnContent />
-    </Suspense>
+    // Escape the root layout's max-w-4xl constraint so the page is truly full-width on desktop.
+    // Navigation is fixed bottom-0 z-50 h-16 (64 px); bottom-16 keeps us clear of it.
+    <div className="fixed inset-x-0 top-0 bottom-16 z-10 bg-background overflow-hidden">
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-full bg-background">
+          <Loader2 className="animate-spin text-primary" />
+        </div>
+      }>
+        <LearnContent />
+      </Suspense>
+    </div>
   )
 }

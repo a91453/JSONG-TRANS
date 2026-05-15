@@ -50,7 +50,8 @@ function isPureKatakana(text: string): boolean {
 /**
  * Split an unannotated fragment for wordcard mode:
  * - Very short fragments (≤2 chars) stay as one pill regardless of script.
- * - Short pure-kana fragments (≤4 chars) also stay as one pill.
+ * - Pure-kana fragments ≤6 chars stay as one pill (covers most particles,
+ *   auxiliary verbs: ですよ, ましょう, ている, てください …).
  * - Longer or mixed kana+kanji fragments are split at character boundaries,
  *   merging compound kana pairs (e.g. じゃ, きゅ) into a single unit.
  */
@@ -59,7 +60,7 @@ function splitUnannotatedForWordcard(text: string): FuriToken[] {
   if (text.length <= 2) {
     return [{ text, isAnnotated: false }];
   }
-  if (text.length <= 4 && !CJK_RE.test(text)) {
+  if (text.length <= 6 && !CJK_RE.test(text)) {
     return [{ text, isAnnotated: false }];
   }
   const chars = Array.from(text);
@@ -205,7 +206,7 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
   if (layout === 'wordcard') {
     return (
       <div className={cn(
-        'flex flex-wrap items-end gap-x-2 gap-y-6 transition-all duration-700',
+        'flex flex-wrap items-end gap-x-2 gap-y-3 transition-all duration-700',
         active ? 'opacity-100' : 'opacity-30',
       )}>
         {wordcardTokens.map((tk, idx) => {
@@ -285,7 +286,7 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
     const canRomaji      = tk.isAnnotated ? !!tk.reading : isKanaChar;
     const showRomajiLine = showRomaji   && canRomaji    && !suppressKata;
     const showReadLine   = showFurigana && hasFurigana  && !suppressKata;
-    const padX           = tk.isAnnotated ? 'px-4' : 'px-0.5';
+    const padX           = tk.isAnnotated ? 'px-2' : 'px-0.5';
 
     return (
       <div
@@ -327,7 +328,7 @@ export const FuriganaText: React.FC<FuriganaTextProps> = ({
     <div className="space-y-1">
       {standardLines.map((row, ri) => (
         <div key={ri} className={cn(
-          'flex flex-wrap items-end gap-x-1 gap-y-5 sm:gap-y-8 transition-all duration-700',
+          'flex flex-wrap items-end gap-x-1 gap-y-2 transition-all duration-700',
           active ? 'scale-100 origin-left' : 'opacity-30',
         )}>
           {row.map(renderStdToken)}
